@@ -48,9 +48,8 @@ function damageTarget(e,amount){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
   if(e.hp<=0 && !e.dead){
     e.dead=true;
-    if(e===game.boss || (game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e))))){
-      AudioEngine.SE.hitEnemy();
-    } else { game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16); spawnChestMaybe(e.x,e.y); }
+    const isBossPart = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
+    if(!isBossPart){ game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16); spawnChestMaybe(e.x,e.y); }
   }
 }
 function spawnChestMaybe(x,y){ if(Math.random()<0.005){ game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,value:25+Math.floor(Math.random()*40)}); } }
@@ -61,8 +60,8 @@ function spawnParticles(x,y,color,count){
   }
 }
 function screenShake(a){ game.shake=Math.max(game.shake,a); }
+function waveEnemyCount(wave){ return Math.round(10+(wave-1)*4.4); }
 
-let W2H2set=true;
 const keys={};
 window.addEventListener('keydown',e=>{ keys[e.key.toLowerCase()]=true; });
 window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
@@ -73,8 +72,8 @@ let lastTime=0;
 
 function startRun(){
   game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],swings:[],lightnings:[],fireballs:[],drones:[],
-    wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,kills:0,elapsed:0,shake:0,running:true,tokensThisRun:0,starsThisRun:0,
-    boss:null,bossActive:false};
+    wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,spawnQueue:waveEnemyCount(1),kills:0,elapsed:0,shake:0,running:true,
+    tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0};
   game.player.x=W/2; game.player.y=H/2;
   screenState='game'; syncScreenDom();
   showWaveBanner(1); AudioEngine.SE.waveStart();
@@ -85,13 +84,15 @@ function showStarBanner(){ const el=document.getElementById('starBanner'); el.te
 
 function loop(now){
   if(!game||!game.running) return;
-  let dt=(now-lastTime)/1000; lastTime=now; dt=Math.min(dt,0.05);
+  let rawDt=(now-lastTime)/1000; lastTime=now; rawDt=Math.min(rawDt,0.05);
+  let dt=rawDt;
+  if(game.hitStop>0){ game.hitStop-=rawDt; dt=rawDt*0.08; }
   update(dt); render();
   requestAnimationFrame(loop);
 }
 
 function triggerBoss(wave){
-  game.enemies=[]; game.bullets=[];
+  game.bullets=[];
   game.boss=createBoss(wave); game.bossActive=true;
   document.getElementById('bossHpWrap').classList.remove('hidden');
   document.getElementById('bossName').textContent=game.boss.name;
@@ -110,6 +111,7 @@ function endBoss(){
   AudioEngine.startBGM(false);
   if(wave>=50){ triggerGameClear(); return; }
   game.wave=wave+1; game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
+  game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
   showWaveBanner(game.wave); AudioEngine.SE.waveStart();
 }
 function triggerGameClear(){
@@ -133,11 +135,16 @@ function update(dt){
     if(game.waveTimer>=game.waveDuration){
       const nextWave=game.wave+1;
       if(BOSS_TABLE[nextWave]){ game.wave=nextWave; triggerBoss(nextWave); }
-      else { game.waveTimer=0; game.wave=nextWave; game.waveDuration=Math.max(14,26-game.wave*0.4); showWaveBanner(game.wave); AudioEngine.SE.waveStart(); }
+      else {
+        game.waveTimer=0; game.wave=nextWave; game.waveDuration=Math.max(14,26-game.wave*0.4);
+        game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
+        showWaveBanner(game.wave); AudioEngine.SE.waveStart();
+      }
     }
-    const spawnInterval=Math.max(0.35,1.3-game.wave*0.05);
-    const maxEnemies=Math.min(60,10+game.wave*3);
-    if(game.spawnTimer>=spawnInterval && game.enemies.length<maxEnemies){ game.spawnTimer=0; game.enemies.push(spawnEnemy(game.wave)); }
+    const spawnInterval=Math.max(0.18,0.9-game.wave*0.02);
+    if(game.spawnTimer>=spawnInterval && (game.spawnQueue||0)>0){
+      game.spawnTimer=0; game.spawnQueue--; game.enemies.push(spawnEnemy(game.wave));
+    }
   }
 
   const prevX=p.x, prevY=p.y;
@@ -148,16 +155,14 @@ function update(dt){
   game.lightnings.forEach(l=>l.life-=dt); game.lightnings=game.lightnings.filter(l=>l.life>0);
   game.fireballs.forEach(f=>{ f.life-=dt; f.r=f.maxR*(1-f.life/f.maxLife); }); game.fireballs=game.fireballs.filter(f=>f.life>0);
 
+  updateEnemies(dt);
   if(game.bossActive && game.boss){
     updateBoss(dt);
-    if(game.boss.type==='splitter') game.boss.children=game.boss.children.filter(c=>true);
     if(bossIsDefeated(game.boss)){ endBoss(); }
     else {
       const cur=bossTotalHp(game.boss), mx=bossMaxHp(game.boss);
       document.getElementById('bossHpInner').style.width=Math.max(0,cur/mx*100)+'%';
     }
-  } else {
-    updateEnemies(dt);
   }
 
   for(const b of game.bullets){
@@ -166,10 +171,14 @@ function update(dt){
     if(b.owner==='enemy' && !b.dead){
       if(dist(b.x,b.y,p.x,p.y)<b.r+p.r){ damagePlayer(b.dmg); b.dead=true; }
     } else if(b.owner==='player' && !b.dead){
-      const targets = game.bossActive&&game.boss ? (game.boss.type==='splitter'?[game.boss,...game.boss.children]:(game.boss.type==='centipede'?game.boss.segs:[game.boss])).filter(t=>!t.dead) : game.enemies;
+      let targets=[...game.enemies];
+      if(game.bossActive && game.boss){
+        const bossTargets = game.boss.type==='splitter'?[game.boss,...game.boss.children]:(game.boss.type==='centipede'?game.boss.segs:[game.boss]);
+        targets=targets.concat(bossTargets.filter(t=>!t.dead));
+      }
       for(const e of targets){
         if(b.hitSet.has(e)) continue;
-        if(dist(b.x,b.y,e.x,e.y)<b.r+e.r){ damageTarget(e,b.dmg); if(tryApplyStatus) tryApplyStatus(e); b.hitSet.add(e); if(!b.pierce){ b.dead=true; break; } }
+        if(dist(b.x,b.y,e.x,e.y)<b.r+e.r){ damageTarget(e,b.dmg); tryApplyStatus(e); b.hitSet.add(e); if(!b.pierce){ b.dead=true; break; } }
       }
     }
   }
@@ -180,7 +189,7 @@ function update(dt){
 
   for(const c of game.chests){
     c.phase+=dt*3;
-    if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){ c.collected=true; game.tokensThisRun+=c.value; AudioEngine.SE.chest(); spawnParticles(c.x,c.y,'#f4ff00',18); }
+    if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){ c.collected=true; game.tokensThisRun+=Math.round(c.value*p.base.tokenMul); AudioEngine.SE.chest(); spawnParticles(c.x,c.y,'#f4ff00',18); }
   }
   game.chests=game.chests.filter(c=>!c.collected);
 
@@ -200,7 +209,7 @@ function updateHUD(){
 function endRun(){
   game.running=false; AudioEngine.SE.gameOver(); AudioEngine.stopBGM();
   document.getElementById('bossHpWrap').classList.add('hidden');
-  const tokensEarned=Math.round(game.wave*15+game.kills*1+game.tokensThisRun);
+  const tokensEarned=Math.round((game.wave*15+game.kills*1)*game.player.base.tokenMul+game.tokensThisRun);
   gameData.tokens+=tokensEarned; gameData.maxWave=Math.max(gameData.maxWave,game.wave); saveGame();
   document.getElementById('statWave').textContent=game.wave;
   document.getElementById('statKills').textContent=game.kills;
@@ -226,7 +235,8 @@ function render(){
   for(const pt of game.particles){ ctx.globalAlpha=Math.max(0,pt.life/pt.maxLife); ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); }
   ctx.globalAlpha=1;
 
-  if(game.bossActive && game.boss) drawBoss(); else drawEnemies();
+  drawEnemies();
+  if(game.bossActive && game.boss){ drawTelegraphs(); drawBoss(); }
 
   for(const b of game.bullets){ ctx.save(); ctx.shadowColor=b.color; ctx.shadowBlur=14; ctx.fillStyle=b.color; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
   for(const l of game.lightnings){
@@ -248,7 +258,6 @@ function render(){
   ctx.restore();
 }
 
-/* ---- screens ---- */
 function starIconHtml(){ return `<svg class="star-icon-svg" viewBox="0 0 100 140"><path d="M50 2 C54 2 56 6 58 14 L66 46 C82 48 96 50 98 54 C100 58 96 62 84 70 L64 84 C68 100 72 116 70 122 C68 128 62 128 50 118 C38 128 32 128 30 122 C28 116 32 100 36 84 L16 70 C4 62 0 58 2 54 C4 50 18 48 34 46 L42 14 C44 6 46 2 50 2 Z" fill="url(#starGrad)" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`; }
 function renderGlobalCurrency(){ document.getElementById('globalCurrency').innerHTML=`<div class="curr-pill">⬡ ${gameData.tokens}</div><div class="curr-pill star">${starIconHtml()} ${gameData.skillStars}</div>`; }
 
@@ -289,7 +298,6 @@ function syncScreenDom(){
   }
 }
 
-/* input routing */
 canvas.addEventListener('wheel',(e)=>{ if(screenState==='skilltree') SkillTree.onWheel(e); },{passive:false});
 canvas.addEventListener('mousedown',(e)=>{ if(screenState==='skilltree') SkillTree.onDown(e); });
 canvas.addEventListener('mousemove',(e)=>{ if(screenState==='skilltree') SkillTree.onMove(e); });
