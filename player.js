@@ -1,10 +1,102 @@
 /* player.js */
+
+/* --- レジェンドアクティブ発動 --- */
+function triggerLegendSkill(key){
+  const p=game.player;
+  if(!game.legendCooldowns) game.legendCooldowns={crosscut:0,shotgun:0,lifedrain:0};
+  if(game.legendCooldowns[key]>0) return;
+  if(key==='crosscut' && p.build.legendMage){
+    game.legendCooldowns.crosscut=18;
+    game.flashTimer=0.35; screenShake(20); AudioEngine.SE.crosscut();
+    game.lightnings.push({type:'laser',x1:0,y1:p.y,x2:W,y2:p.y,life:0.5,maxLife:0.5});
+    game.lightnings.push({type:'laser',x1:p.x,y1:0,x2:p.x,y2:H,life:0.5,maxLife:0.5});
+    const dmg=(p.build.mageDmg*p.build.mageDmgMult||40)*6;
+    allTargets().forEach(e=>{
+      if(Math.abs(e.y-p.y)<60 || Math.abs(e.x-p.x)<60){ damageTarget(e,dmg,false); spawnParticles(e.x,e.y,'#00fff2',20); }
+    });
+  }
+  else if(key==='shotgun' && p.build.legendGunner){
+    game.legendCooldowns.shotgun=16;
+    AudioEngine.SE.shotgunCock(); screenShake(16);
+    const baseAng=p.swingAngle;
+    for(let i=-4;i<=4;i++){
+      const ang=baseAng+i*0.11;
+      game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*600,vy:Math.sin(ang)*600,r:6,dmg:((p.build.pistolDmg||0)+(p.build.sniperDmg||0)+30),owner:'player',pierce:true,hitSet:new Set(),color:'#ffbe0b'});
+    }
+    spawnParticles(p.x,p.y,'#ffbe0b',30);
+  }
+  else if(key==='lifedrain' && p.build.legendVitality){
+    if(p.hp>=p.maxHp*0.99) return;
+    game.legendCooldowns.lifedrain=14;
+    AudioEngine.SE.lifedrain(); screenShake(10);
+    const targets=allTargets().filter(e=>dist(e.x,e.y,p.x,p.y)<260);
+    let healed=0;
+    targets.forEach(e=>{ const dmg=30+p.base.damage*4; damageTarget(e,dmg,false); healed+=dmg*0.5; spawnParticles(e.x,e.y,'#ff2b4d',10); });
+    p.hp=Math.min(p.maxHp,p.hp+healed);
+    spawnParticles(p.x,p.y,'#39ff88',30);
+  }
+}
+
+/* 自動発動系レジェンドパッシブ処理 */
+function updateLegendPassives(dt){
+  const p=game.player;
+  if(p.build.legendBoxer && p.build.boxerMode){
+    p._superCritTimer=(p._superCritTimer||0)-dt;
+    if(p._superCritTimer<=0){
+      p._superCritTimer=0.3;
+      if(Math.random()<0.003){
+        const t=nearestEnemyTo(p.x,p.y);
+        if(t){
+          const dmg=(t.maxHp||t.hp)*0.4;
+          damageTarget(t,dmg,true);
+          screenShake(26); game.flashTimer=0.25; AudioEngine.SE.superCrit();
+          spawnParticles(t.x,t.y,'#fff',40);
+        }
+      }
+    }
+  }
+  if(p.build.legendChem && p.build.chemUnlocked){
+    /* 火傷は tryApplyStatus 内で別途付与（enemy.dots に burn タイプを追加） */
+  }
+  if(p.build.legendBow && p.build.bowUnlocked){
+    p._astraTimer=(p._astraTimer||0)-dt;
+    if(p._astraTimer<=0){
+      p._astraTimer=10;
+      const t=nearestEnemyTo(p.x,p.y);
+      if(t){
+        AudioEngine.SE.astraArrow(); screenShake(14);
+        const ang=Math.atan2(t.y-p.y,t.x-p.x);
+        game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*700,vy:Math.sin(ang)*700,r:14,dmg:(p.build.arrowDmg*p.build.bowDmgMult||20)*8,owner:'player',pierce:true,hitSet:new Set(),color:'#f4ff00'});
+      }
+    }
+  }
+  if(p.build.legendDrone && p.build.droneCount>0){
+    if(!game.mothership) game.mothership={angle:0,laserTimer:2,overclockTimer:8,overclockActive:0};
+    const ms=game.mothership;
+    ms.laserTimer-=dt;
+    if(ms.laserTimer<=0){
+      ms.laserTimer=2.5;
+      const t=nearestEnemyTo(p.x,p.y-90);
+      if(t){
+        AudioEngine.SE.mothershipLaser();
+        const ang=Math.atan2(t.y-(p.y-90),t.x-p.x);
+        game.lightnings.push({type:'laser',x1:p.x,y1:p.y-90,x2:p.x+Math.cos(ang)*600,y2:p.y-90+Math.sin(ang)*600,life:0.3,maxLife:0.3});
+        allTargets().forEach(e=>{ if(pointToSegDist(e.x,e.y,p.x,p.y-90,p.x+Math.cos(ang)*600,p.y-90+Math.sin(ang)*600)<18) damageTarget(e,60,false); });
+      }
+    }
+    ms.overclockTimer-=dt;
+    if(ms.overclockTimer<=0){ ms.overclockTimer=8; ms.overclockActive=3; AudioEngine.SE.drone(); }
+    if(ms.overclockActive>0) ms.overclockActive-=dt;
+  }
+}
+
 function makePlayer(){
   const {base,build}=computePlayerStats();
   return {x:0,y:0,r:20,hp:base.maxHp,maxHp:base.maxHp,base,build,
     atkTimer:0,boltTimer:0,mageTimer:0,fireballTimer:0,droneAngle:0,
     invuln:0,swingAngle:0,swingAnim:1,shieldCd:0,shieldFlash:0};
 }
+
 function nearestEnemyTo(x,y){
   let best=null,bd=Infinity;
   game.enemies.forEach(e=>{ const d=dist(e.x,e.y,x,y); if(d<bd){bd=d;best=e;} });
@@ -14,6 +106,7 @@ function nearestEnemyTo(x,y){
   }
   return best;
 }
+
 function allTargets(){
   let list=[...game.enemies];
   if(game.boss){
@@ -23,12 +116,14 @@ function allTargets(){
   }
   return list.filter(t=>!t.dead);
 }
+
 function tryApplyStatus(e){
   const p=game.player; const chance=p.build.statusChance;
   if(chance<=0 || Math.random()>=chance) return;
   if(p.build.poisonDmg>0){ e.dots=e.dots||[]; e.dots.push({color:'#39ff88',dmg:p.build.poisonDmg*p.build.statusDmgMult,interval:0.5,tickTimer:0.5,remaining:3}); }
   if(p.build.frostSlow>0){ e.slowFactor=Math.max(0.15,1-p.build.frostSlow); e.slowTimer=2; }
 }
+
 const easeOutBack=t=>{ const c1=1.70158,c3=c1+1; const tt=Math.min(1,Math.max(0,t)); return 1+c3*Math.pow(tt-1,3)+c1*Math.pow(tt-1,2); };
 
 function updatePlayer(dt){
@@ -147,12 +242,26 @@ function updatePlayer(dt){
     });
   } else { game.drones=[]; }
 
+  updateLegendPassives(dt); // regen処理の直前に追記
+
   if(p.base.regen>0 && p.hp<p.maxHp) p.hp=Math.min(p.maxHp,p.hp+p.base.regen*dt);
 }
+
 function damagePlayer(amount){
   const p=game.player; if(p.invuln>0) return;
   const reduced = amount*(1-Math.min(0.85,p.build.dmgReduction*p.build.dmgReductionMult));
   p.hp-=reduced; p.invuln=0.5; AudioEngine.SE.playerHit(); screenShake(10); spawnParticles(p.x,p.y,'#ff2b4d',10);
+}
+
+function drawMothership(){
+  if(!game.player.build.legendDrone || game.player.build.droneCount<=0) return;
+  const p=game.player, ms=game.mothership;
+  ctx.save();
+  ctx.translate(p.x,p.y-90);
+  ctx.shadowColor='#00fff2'; ctx.shadowBlur=(ms&&ms.overclockActive>0)?30:16;
+  ctx.fillStyle='#0a1830'; ctx.strokeStyle= (ms&&ms.overclockActive>0)?'#ffbe0b':'#00fff2'; ctx.lineWidth=3;
+  roundRectPath(ctx,-30,-14,60,28,10); ctx.fill(); ctx.stroke();
+  ctx.restore();
 }
 
 function drawCyberBat(p,batAngle,alpha,isTrail){
@@ -183,6 +292,7 @@ function drawCyberBat(p,batAngle,alpha,isTrail){
   }
   ctx.restore();
 }
+
 function drawPlayer(){
   const p=game.player;
   ctx.save();
@@ -216,4 +326,6 @@ function drawPlayer(){
     ctx.save(); ctx.shadowColor='#00fff2'; ctx.shadowBlur=10; ctx.fillStyle='#0a1830'; ctx.strokeStyle='#00fff2'; ctx.lineWidth=2;
     roundRectPath(ctx,dr.x-7,dr.y-7,14,14,4); ctx.fill(); ctx.stroke(); ctx.restore();
   });
+
+  drawMothership(); // ドローン描画の後にマザーシップを描画
 }
