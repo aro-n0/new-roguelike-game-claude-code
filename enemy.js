@@ -261,6 +261,7 @@ function drawBoss(){
     ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore();
   });
 }
+
 function dissolveBoss(){
   const b=game.boss; if(!b) return;
   const pts = b.type==='centipede'? b.segs.filter(s=>!s.dead) : (b.type==='splitter'? [b,...b.children.filter(c=>!c.dead)] : [b]);
