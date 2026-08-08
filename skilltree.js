@@ -1,4 +1,4 @@
-/* skilltree.js */
+/* skilltree.js（全文更新） */
 const GATE_THRESHOLD=12;
 function costAt(node,lvl){ return Math.round(node.baseCost*Math.pow(node.growth,lvl)); }
 function mult(l,g){ return Math.pow(g,l); }
@@ -7,12 +7,11 @@ function P(parent,angleDeg,radius){
   return {x:parent.x+Math.cos(rad)*radius, y:parent.y+Math.sin(rad)*radius};
 }
 
-/* ---- Token tree (base stats) : 攻撃力 root -> branching tree ---- */
 const core={x:0,y:0,id:'core'};
 
 const t_dmg_pos=P(core,-90,170);
 const t_dmg={id:'t_dmg',category:'token',name:'攻撃力',icon:'⚔',maxLv:200,baseCost:8,growth:1.28,parent:'core',
-  x:t_dmg_pos.x,y:t_dmg_pos.y,apply:(b,l)=>{b.damage+=1*l;},desc:l=>`攻撃力 +${l}`};
+  x:t_dmg_pos.x,y:t_dmg_pos.y,apply:(b,l)=>{b.damage+=1.3*l;},desc:l=>`攻撃力 +${(1.3*l).toFixed(1)}`};
 
 const t_aspd_pos=P(t_dmg_pos,-150,170);
 const t_aspd={id:'t_aspd',category:'token',name:'攻撃速度',icon:'⚡',maxLv:12,baseCost:10,growth:1.2,parent:'t_dmg',
@@ -40,12 +39,11 @@ const t_speed={id:'t_speed',category:'token',name:'移動速度',icon:'➤',maxL
 
 const t_knockback_pos=P(t_hp_pos,-70,170);
 const t_knockback={id:'t_knockback',category:'token',name:'ノックバック力',icon:'☄',maxLv:10,baseCost:10,growth:1.2,parent:'t_hp',
-  x:t_knockback_pos.x,y:t_knockback_pos.y,apply:(b,l)=>{b.knockback+=8*l;},desc:l=>`ノックバック力 +${8*l}`};
+  x:t_knockback_pos.x,y:t_knockback_pos.y,apply:(b,l)=>{b.knockback+=14*l;},desc:l=>`ノックバック力 +${14*l}`};
 
 const TOKEN_NODES=[t_dmg,t_aspd,t_crit,t_hp,t_range,t_tokendrop,t_speed,t_knockback];
 function tokenTotalLevels(){ let s=0; TOKEN_NODES.forEach(n=>{ s+=gameData.tokenLevels[n.id]||0; }); return s; }
 
-/* ---- 7 special skill branches (skill stars), each derives from a token node ---- */
 function buildBranch(tokenId,tokenPos,angleDeg,defs){
   const rootPos=P(tokenPos,angleDeg,170);
   const root=Object.assign({},defs.root,{category:'build',parent:tokenId,tier:'root',x:rootPos.x,y:rootPos.y});
@@ -69,7 +67,6 @@ const mageBranch=buildBranch('t_range',t_range_pos,-170,{
   capstone:{id:'mg_capstone',name:'アークメイジ',icon:'☀',maxLv:8,baseCost:10,growth:1.5,apply:(b,l)=>{b.mageDmgMult*=mult(l,1.32);},desc:l=>`魔法倍率 x${mult(l,1.32).toFixed(2)}`},
   ultimate:{id:'mg_ultimate',name:'大魔導',icon:'☀',maxLv:5,baseCost:40,growth:1.6,apply:(b,l)=>{b.chainCount+=Math.floor(l/2);b.mageDmgMult*=mult(l,1.25);},desc:l=>`連鎖+${Math.floor(l/2)} 倍率x${mult(l,1.25).toFixed(2)}`},
 });
-
 const droneBranch=buildBranch('t_tokendrop',t_tokendrop_pos,-130,{
   root:{id:'dr_root',name:'ドローン起動',icon:'◈',maxLv:1,baseCost:2,growth:1.5,apply:(b,l)=>{b.droneCount+=1;b.droneDmg+=3;},desc:l=>`自律ドローンを1機展開`},
   midA:{id:'dr_cd',name:'再突入プロトコル短縮',icon:'◈',maxLv:5,baseCost:5,growth:1.3,apply:(b,l)=>{b.droneCdReduce+=0.08*l;},desc:l=>`ドローン攻撃CD短縮 -${(0.08*l).toFixed(2)}s`},
@@ -77,7 +74,6 @@ const droneBranch=buildBranch('t_tokendrop',t_tokendrop_pos,-130,{
   capstone:{id:'dr_capstone',name:'AI最適化',icon:'◉',maxLv:8,baseCost:11,growth:1.5,apply:(b,l)=>{b.droneDmgMult*=mult(l,1.32);},desc:l=>`ドローン倍率 x${mult(l,1.32).toFixed(2)}`},
   ultimate:{id:'dr_ultimate',name:'ドローンスウォーム',icon:'◉',maxLv:5,baseCost:42,growth:1.6,apply:(b,l)=>{b.droneCount+=Math.floor(l/2);b.droneDmgMult*=mult(l,1.25);},desc:l=>`数+${Math.floor(l/2)} 倍率x${mult(l,1.25).toFixed(2)}`},
 });
-
 const chemicalBranch=buildBranch('t_crit',t_crit_pos,-45,{
   root:{id:'ch_root',name:'高化学兵器適性',icon:'☣',maxLv:5,baseCost:1,growth:1.3,apply:(b,l)=>{b.statusChance+=0.06*l;},desc:l=>`状態異常付与率 +${Math.round(6*l)}%`},
   midA:{id:'ch_poison',name:'猛毒コーティング',icon:'🧪',maxLv:5,baseCost:4,growth:1.3,apply:(b,l)=>{b.poisonDmg+=2*l;},desc:l=>`毒ダメージ/tick +${2*l}`},
@@ -85,7 +81,6 @@ const chemicalBranch=buildBranch('t_crit',t_crit_pos,-45,{
   capstone:{id:'ch_capstone',name:'疫病の権化',icon:'☠',maxLv:8,baseCost:10,growth:1.5,apply:(b,l)=>{b.statusDmgMult*=mult(l,1.32);},desc:l=>`状態異常倍率 x${mult(l,1.32).toFixed(2)}`},
   ultimate:{id:'ch_ultimate',name:'終末瘴気',icon:'☣',maxLv:5,baseCost:40,growth:1.6,apply:(b,l)=>{b.statusChance+=0.05*l;b.statusDmgMult*=mult(l,1.25);},desc:l=>`付与率+${Math.round(5*l)}% 倍率x${mult(l,1.25).toFixed(2)}`},
 });
-
 const boxerBranch=buildBranch('t_crit',t_crit_pos,-15,{
   root:{id:'bx_root',name:'闘士の誓い',icon:'✊',maxLv:1,baseCost:2,growth:1.5,apply:(b,l,base)=>{b.boxerMode=true;base.range*=0.6;base.atkSpd*=0.85;b.boxerDmg+=5;},desc:l=>`バットを捨て拳装備`},
   midA:{id:'bx_power',name:'鋼拳',icon:'✊',maxLv:5,baseCost:5,growth:1.32,apply:(b,l)=>{b.boxerDmg+=6*l;},desc:l=>`拳威力 +${6*l}`},
@@ -93,7 +88,6 @@ const boxerBranch=buildBranch('t_crit',t_crit_pos,-15,{
   capstone:{id:'bx_capstone',name:'限界突破',icon:'☄',maxLv:8,baseCost:12,growth:1.55,apply:(b,l)=>{b.boxerDmgMult*=mult(l,1.35);},desc:l=>`拳倍率 x${mult(l,1.35).toFixed(2)}`},
   ultimate:{id:'bx_ultimate',name:'神速の拳',icon:'☄',maxLv:5,baseCost:45,growth:1.65,apply:(b,l)=>{b.boxerCombo+=0.15*l;b.boxerDmgMult*=mult(l,1.28);},desc:l=>`連撃+${Math.round(15*l)}% 倍率x${mult(l,1.28).toFixed(2)}`},
 });
-
 const bowBranch=buildBranch('t_speed',t_speed_pos,-110,{
   root:{id:'bo_root',name:'弓術取得',icon:'➶',maxLv:5,baseCost:1,growth:1.3,apply:(b,l)=>{b.bowUnlocked=true;b.arrowDmg+=2*l;},desc:l=>`弓習得 威力+${2*l}`},
   midA:{id:'bo_multi',name:'マルチノック',icon:'➶',maxLv:4,baseCost:5,growth:1.35,apply:(b,l)=>{b.arrowCount+=l;},desc:l=>`同時発射数 +${l}`},
@@ -101,7 +95,6 @@ const bowBranch=buildBranch('t_speed',t_speed_pos,-110,{
   capstone:{id:'bo_capstone',name:'乱れ撃ち',icon:'➹',maxLv:8,baseCost:10,growth:1.5,apply:(b,l)=>{b.bowDmgMult*=mult(l,1.32);},desc:l=>`弓倍率 x${mult(l,1.32).toFixed(2)}`},
   ultimate:{id:'bo_ultimate',name:'千本乱舞',icon:'➹',maxLv:5,baseCost:40,growth:1.6,apply:(b,l)=>{b.arrowCount+=Math.floor(l/2);b.bowDmgMult*=mult(l,1.25);},desc:l=>`発射数+${Math.floor(l/2)} 倍率x${mult(l,1.25).toFixed(2)}`},
 });
-
 const immunityBranch=buildBranch('t_knockback',t_knockback_pos,-85,{
   root:{id:'im_root',name:'免疫適性',icon:'🛡',maxLv:5,baseCost:1,growth:1.3,apply:(b,l)=>{b.dmgReduction+=0.02*l;},desc:l=>`被ダメージ軽減 +${Math.round(2*l)}%`},
   midA:{id:'im_cleanse',name:'自動解毒',icon:'🛡',maxLv:5,baseCost:4,growth:1.3,apply:(b,l)=>{b.dmgReduction+=0.015*l;},desc:l=>`被ダメージ軽減 +${(1.5*l).toFixed(1)}%`},
@@ -109,7 +102,6 @@ const immunityBranch=buildBranch('t_knockback',t_knockback_pos,-85,{
   capstone:{id:'im_capstone',name:'完全適応',icon:'✝',maxLv:8,baseCost:11,growth:1.5,apply:(b,l)=>{b.dmgReductionMult*=mult(l,1.25);},desc:l=>`軽減倍率 x${mult(l,1.25).toFixed(2)}`},
   ultimate:{id:'im_ultimate',name:'不滅の免疫',icon:'✝',maxLv:5,baseCost:40,growth:1.6,apply:(b,l)=>{b.dmgReduction+=0.03*l;b.dmgReductionMult*=mult(l,1.2);},desc:l=>`軽減+${Math.round(3*l)}% 倍率x${mult(l,1.2).toFixed(2)}`},
 });
-
 const vitalityBranch=buildBranch('t_knockback',t_knockback_pos,-55,{
   root:{id:'vt_root',name:'耐久適性',icon:'🛡',maxLv:5,baseCost:1,growth:1.3,apply:(b,l)=>{b.dmgReduction+=0.03*l;},desc:l=>`被ダメージ軽減 +${Math.round(3*l)}%`},
   midA:{id:'vt_hp',name:'強化外殻',icon:'🛡',maxLv:6,baseCost:5,growth:1.3,apply:(b,l)=>{b.vitHp+=25*l;},desc:l=>`最大HP +${25*l}`},
@@ -128,27 +120,52 @@ function getLevel(node){
   return (slot.build&&slot.build[node.id])||0;
 }
 function isOwned(node){ return node && getLevel(node)>0; }
-function isVisible(node){
-  if(node.category==='token') return node.parent==='core' || isOwned(findNode(node.parent));
-  if(!isOwned(findNode(node.parent))) return false;
-  if(node.tier==='root') return tokenTotalLevels()>=GATE_THRESHOLD;
-  return true;
-}
 function reqMet(node){
   if(!node.req) return true;
   if(getLevel(findNode(node.req.id))<node.req.lvl) return false;
   if(node.req.id2 && getLevel(findNode(node.req.id2))<node.req.lvl2) return false;
   return true;
 }
+/* 表示段階: owned / available(名前+コスト表示) / fogged(？？？) / hidden(非表示) */
+function nodeState(node){
+  if(node.category==='token'){
+    const parentOwned = node.parent==='core' || isOwned(findNode(node.parent));
+    if(!parentOwned){
+      const parent=findNode(node.parent);
+      const grandOwned = parent && (parent.parent==='core' || isOwned(findNode(parent.parent)));
+      return grandOwned? 'fogged':'hidden';
+    }
+    return isOwned(node)? 'owned':'available';
+  } else {
+    const parent=findNode(node.parent);
+    const parentOwned=isOwned(parent);
+    if(node.tier==='root'){
+      if(!parentOwned) return 'hidden';
+      if(tokenTotalLevels()<GATE_THRESHOLD) return 'fogged';
+      return isOwned(node)? 'owned':'available';
+    }
+    if(!parentOwned){
+      const grandOwned = parent && isOwned(findNode(parent.parent));
+      return grandOwned? 'fogged':'hidden';
+    }
+    if(isOwned(node)) return 'owned';
+    return reqMet(node)? 'available':'fogged';
+  }
+}
+function isVisible(node){ return nodeState(node)!=='hidden'; }
 function canAfford(node){
+  const st=nodeState(node);
+  if(st!=='available') return false;
   const lvl=getLevel(node);
-  if(lvl>=node.maxLv || !reqMet(node)) return false;
+  if(lvl>=node.maxLv) return false;
   const cost=costAt(node,lvl);
   return node.category==='token'? gameData.tokens>=cost : gameData.skillStars>=cost;
 }
 function buyNode(node){
+  const st=nodeState(node);
+  if(st!=='available') return;
   const lvl=getLevel(node);
-  if(lvl>=node.maxLv || !isVisible(node) || !reqMet(node)) return;
+  if(lvl>=node.maxLv) return;
   const cost=costAt(node,lvl);
   if(node.category==='token'){
     if(gameData.tokens<cost) return;
@@ -160,7 +177,10 @@ function buyNode(node){
     if(!slot.build) slot.build={};
     slot.build[node.id]=lvl+1;
   }
-  AudioEngine.SE.skillBuy(); saveGame();
+  AudioEngine.SE.unlock();
+  SkillTree.triggerUnlockFx(node.id);
+  saveGame();
+  if(window.onCurrencyChange) window.onCurrencyChange();
 }
 function computePlayerStats(){
   const base={maxHp:100,damage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0.05,knockback:0,tokenMul:1};
@@ -177,14 +197,18 @@ function computePlayerStats(){
   return {base,build};
 }
 
-/* ---- Canvas fog-tree renderer with pan & zoom ---- */
+/* ---- Canvas fog-tree renderer: pan/zoom(マウス+タッチ)、ぷにアニメ、解放エフェクト ---- */
 const SkillTree=(function(){
   let view={scale:0.55,offsetX:0,offsetY:0};
   let dragging=false,lastX=0,lastY=0,dragged=false;
   let tooltipEl=null;
+  let animScale={}, unlockFx={}, hoverId=null;
+  let touchState={mode:null,startDist:0,startScale:1,midX:0,midY:0};
+
   function worldToScreen(x,y){ return {x:W/2+(x+view.offsetX)*view.scale, y:H/2+(y+view.offsetY)*view.scale}; }
   function screenToWorld(sx,sy){ return {x:(sx-W/2)/view.scale-view.offsetX, y:(sy-H/2)/view.scale-view.offsetY}; }
-  function reset(){ view.scale=0.55; view.offsetX=0; view.offsetY=0; }
+  function reset(){ view.scale=0.55; view.offsetX=0; view.offsetY=0; animScale={}; unlockFx={}; hoverId=null; }
+
   function onWheel(e){
     e.preventDefault();
     const before=screenToWorld(e.offsetX,e.offsetY);
@@ -202,11 +226,54 @@ const SkillTree=(function(){
     } else { hoverCheck(e.offsetX,e.offsetY); }
   }
   function onUp(e){ if(!dragged) handleClick(e.offsetX,e.offsetY); dragging=false; }
+
+  function touchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+  function onTouchStart(e){
+    e.preventDefault();
+    if(e.touches.length===1){
+      touchState.mode='pan'; dragged=false;
+      touchState.lastX=e.touches[0].clientX; touchState.lastY=e.touches[0].clientY;
+      const rect=canvas.getBoundingClientRect();
+      hoverCheck(e.touches[0].clientX-rect.left, e.touches[0].clientY-rect.top);
+    } else if(e.touches.length===2){
+      touchState.mode='pinch';
+      touchState.startDist=touchDist(e.touches);
+      touchState.startScale=view.scale;
+      touchState.midX=(e.touches[0].clientX+e.touches[1].clientX)/2;
+      touchState.midY=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    }
+  }
+  function onTouchMove(e){
+    e.preventDefault();
+    if(touchState.mode==='pan' && e.touches.length===1){
+      const dx=e.touches[0].clientX-touchState.lastX, dy=e.touches[0].clientY-touchState.lastY;
+      if(Math.abs(dx)>2||Math.abs(dy)>2) dragged=true;
+      view.offsetX+=dx/view.scale; view.offsetY+=dy/view.scale;
+      touchState.lastX=e.touches[0].clientX; touchState.lastY=e.touches[0].clientY;
+    } else if(touchState.mode==='pinch' && e.touches.length===2){
+      const newDist=touchDist(e.touches);
+      const rect=canvas.getBoundingClientRect();
+      const mx=touchState.midX-rect.left, my=touchState.midY-rect.top;
+      const before=screenToWorld(mx,my);
+      view.scale=Math.max(0.15,Math.min(1.6, touchState.startScale*(newDist/Math.max(1,touchState.startDist))));
+      const after=screenToWorld(mx,my);
+      view.offsetX+=(after.x-before.x); view.offsetY+=(after.y-before.y);
+    }
+  }
+  function onTouchEnd(e){
+    if(touchState.mode==='pan' && !dragged && e.changedTouches.length===1){
+      const rect=canvas.getBoundingClientRect();
+      handleClick(e.changedTouches[0].clientX-rect.left, e.changedTouches[0].clientY-rect.top);
+    }
+    if(e.touches.length===0){ touchState.mode=null; hoverId=null; }
+  }
+
   function nodeScreenPos(n){ return worldToScreen(n.x,n.y); }
-  function nodeRadius(n){ return (n.tier==='capstone'?26:(n.tier==='ultimate'?30:22))*view.scale; }
+  function nodeBaseRadius(n){ return (n.tier==='capstone'?26:(n.tier==='ultimate'?30:22)); }
+  function nodeRadius(n){ const s=animScale[n.id]||1; return nodeBaseRadius(n)*view.scale*s; }
   function hitNode(sx,sy){
     for(const n of ALL_NODES){
-      if(!isVisible(n)) continue;
+      if(nodeState(n)==='hidden') continue;
       const p=nodeScreenPos(n); const r=nodeRadius(n);
       if(Math.hypot(sx-p.x,sy-p.y)<=r) return n;
     }
@@ -215,22 +282,39 @@ const SkillTree=(function(){
   function handleClick(sx,sy){ const n=hitNode(sx,sy); if(n) buyNode(n); }
   function hoverCheck(sx,sy){
     const n=hitNode(sx,sy);
+    const id=n?n.id:null;
+    if(id!==hoverId){
+      hoverId=id;
+      if(id){ AudioEngine.SE.pop(); }
+    }
     hideTooltip();
-    if(n && isVisible(n)){
+    if(n && nodeState(n)!=='hidden' && nodeState(n)!=='fogged'){
       const lvl=getLevel(n);
       tooltipEl=document.createElement('div'); tooltipEl.className='st-tooltip';
       if(lvl>0){
         const cost=lvl<n.maxLv?`次コスト:${costAt(n,lvl)} ${n.category==='token'?'トークン':'スター'}`:'MAX';
         tooltipEl.innerHTML=`<b>${n.name}</b><br>${n.desc(lvl)}<br>${cost}`;
       } else {
-        tooltipEl.innerHTML=`<b>？？？</b><br>解放コスト: ${costAt(n,0)} ${n.category==='token'?'トークン':'スター'}`;
+        tooltipEl.innerHTML=`<b>${n.name}</b><br>解放コスト: ${costAt(n,0)} ${n.category==='token'?'トークン':'スター'}`;
       }
       document.body.appendChild(tooltipEl);
       tooltipEl.style.left=(sx+16)+'px'; tooltipEl.style.top=(sy+8)+'px';
     }
   }
   function hideTooltip(){ if(tooltipEl){ tooltipEl.remove(); tooltipEl=null; } }
-  function render(){
+  function triggerUnlockFx(id){ unlockFx[id]=0.7; }
+
+  function updateAnim(dt){
+    ALL_NODES.forEach(n=>{
+      const target = (n.id===hoverId)?1.22:1;
+      const cur=animScale[n.id]||1;
+      animScale[n.id]=cur+(target-cur)*Math.min(1,dt*14);
+    });
+    Object.keys(unlockFx).forEach(id=>{ unlockFx[id]-=dt; if(unlockFx[id]<=0) delete unlockFx[id]; });
+  }
+
+  function render(dt){
+    updateAnim(dt||0.016);
     ctx.save(); ctx.fillStyle='#04050a'; ctx.fillRect(0,0,W,H);
     ctx.strokeStyle='rgba(0,255,242,0.05)'; ctx.lineWidth=1;
     const gridStep=80*view.scale;
@@ -239,7 +323,7 @@ const SkillTree=(function(){
     for(let y=originY;y<H;y+=gridStep){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
     ALL_NODES.forEach(n=>{
-      if(!isVisible(n)) return;
+      if(nodeState(n)==='hidden') return;
       const parentPos = n.parent==='core'? worldToScreen(0,0) : nodeScreenPos(findNode(n.parent));
       const myPos=nodeScreenPos(n);
       const owned=isOwned(n);
@@ -257,25 +341,40 @@ const SkillTree=(function(){
     ctx.restore();
 
     ALL_NODES.forEach(n=>{
-      if(!isVisible(n)) return;
+      const st=nodeState(n); if(st==='hidden') return;
       const p=nodeScreenPos(n); const r=nodeRadius(n);
-      const lvl=getLevel(n); const owned=lvl>0; const afford=canAfford(n);
+      const lvl=getLevel(n);
       ctx.save();
       let color = n.category==='token'?'#f4ff00':'#d1c4ff';
-      if(owned) color = n.category==='token'?'#39ff88':'#ff00e5';
-      else if(!afford) color='#3a4560';
-      ctx.shadowColor=color; ctx.shadowBlur=(owned||afford?14:0)*view.scale;
+      if(st==='owned') color = n.category==='token'?'#39ff88':'#ff00e5';
+      else if(st==='fogged') color='#3a4560';
+      else if(!canAfford(n)) color='#5a6480';
+      ctx.shadowColor=color; ctx.shadowBlur=(st==='owned'||st==='available'?14:0)*view.scale;
       ctx.fillStyle='rgba(10,12,24,0.94)'; ctx.strokeStyle=color; ctx.lineWidth=2.5;
       ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
       ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.font=`${14*view.scale}px Consolas`;
-      ctx.fillText(owned?n.icon:'？', p.x, p.y-6*view.scale);
-      ctx.font=`${9*view.scale}px Consolas`;
-      const label = owned? `${lvl}/${n.maxLv}` : `${costAt(n,0)}`;
-      ctx.fillText(label, p.x, p.y+9*view.scale);
+      ctx.fillText(st==='owned'?n.icon:'？', p.x, p.y-6*view.scale);
+      if(st==='owned'){
+        ctx.font=`${9*view.scale}px Consolas`;
+        ctx.fillText(`${lvl}/${n.maxLv}`, p.x, p.y+9*view.scale);
+      } else if(st==='available'){
+        ctx.font=`${9*view.scale}px Consolas`;
+        ctx.fillText(`${costAt(n,0)}`, p.x, p.y+9*view.scale);
+      }
       ctx.restore();
+
+      if(unlockFx[n.id]!==undefined){
+        const t=unlockFx[n.id]; const prog=1-Math.max(0,t/0.7);
+        ctx.save();
+        ctx.globalAlpha=Math.max(0,1-prog);
+        ctx.strokeStyle='#fff'; ctx.lineWidth=3*view.scale;
+        ctx.shadowColor='#fff'; ctx.shadowBlur=20*view.scale;
+        ctx.beginPath(); ctx.arc(p.x,p.y,r+prog*30*view.scale,0,Math.PI*2); ctx.stroke();
+        ctx.restore();
+      }
     });
     ctx.restore();
   }
-  return {render,onWheel,onDown,onMove,onUp,reset,hideTooltip};
+  return {render,onWheel,onDown,onMove,onUp,onTouchStart,onTouchMove,onTouchEnd,reset,hideTooltip,triggerUnlockFx};
 })();
