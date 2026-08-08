@@ -1,15 +1,22 @@
 /* enemy.js */
 function spawnEnemy(wave){
-  const roll=Math.random();
   const edge=Math.floor(Math.random()*4); let x,y; const margin=60;
   if(edge===0){x=-margin;y=Math.random()*H;} else if(edge===1){x=W+margin;y=Math.random()*H;}
   else if(edge===2){x=Math.random()*W;y=-margin;} else {x=Math.random()*W;y=H+margin;}
-  const diff=1+(wave-1)*0.16;
-  let type; if(roll<0.55) type='square'; else if(roll<0.82) type='triangle'; else type='pentagon';
+  const diff=1+(wave-1)*0.14; // スケーリング倍率を少しマイルドに調整
+  const roll=Math.random();
+  let type;
+  if(wave<11){
+    // Wave 11未満は四角形と五角形のみ出現（三角形の遠距離敵は出現しない）
+    type = roll<0.72 ? 'square' : 'pentagon';
+  } else {
+    // Wave 11以降から三角形（遠距離）が登場
+    type = roll<0.5 ? 'square' : (roll<0.78 ? 'triangle' : 'pentagon');
+  }
   const b={
-    square:{hp:14,dmg:8,spd:70,r:16,color:'#ff3860',shape:'square'},
-    triangle:{hp:10,dmg:6,spd:55,r:14,color:'#ffbe0b',shape:'triangle',ranged:true,shootRange:260,shootCd:1.8},
-    pentagon:{hp:44,dmg:16,spd:32,r:24,color:'#a600ff',shape:'pentagon',tank:true},
+    square:{hp:9,dmg:8,spd:70,r:16,color:'#ff3860',shape:'square'},
+    triangle:{hp:9,dmg:6,spd:55,r:14,color:'#ffbe0b',shape:'triangle',ranged:true,shootRange:260,shootCd:1.8},
+    pentagon:{hp:40,dmg:16,spd:32,r:24,color:'#a600ff',shape:'pentagon',tank:true},
   }[type];
   return {x,y,type,shape:b.shape,color:b.color,r:b.r,hp:Math.round(b.hp*diff),maxHp:Math.round(b.hp*diff),
     dmg:Math.round(b.dmg*(1+(wave-1)*0.11)),spd:b.spd*(1+Math.min(0.6,(wave-1)*0.035)),
