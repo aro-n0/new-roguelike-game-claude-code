@@ -2,29 +2,35 @@
 function makePlayer(){
   const {base,build}=computePlayerStats();
   return {x:0,y:0,r:20,hp:base.maxHp,maxHp:base.maxHp,base,build,
-    atkTimer:0,boltTimer:0,laserTimer:0,mageTimer:0,fireballTimer:0,droneAngle:0,
-    invuln:0,swingAngle:0,shieldCd:0,shieldFlash:0};
+    atkTimer:0,boltTimer:0,mageTimer:0,fireballTimer:0,droneAngle:0,
+    invuln:0,swingAngle:0,swingAnim:1,shieldCd:0,shieldFlash:0};
 }
 function nearestEnemyTo(x,y){
   let best=null,bd=Infinity;
   game.enemies.forEach(e=>{ const d=dist(e.x,e.y,x,y); if(d<bd){bd=d;best=e;} });
   if(game.boss){
-    const targets = game.boss.children? [game.boss,...game.boss.children.filter(c=>!c.dead)] : [game.boss];
+    const targets = game.boss.children? [game.boss,...game.boss.children.filter(c=>!c.dead)] : (game.boss.segs? game.boss.segs.filter(s=>!s.dead) : [game.boss]);
     targets.forEach(t=>{ if(t.dead) return; const d=dist(t.x,t.y,x,y); if(d<bd){bd=d;best=t;} });
   }
   return best;
 }
 function allTargets(){
   let list=[...game.enemies];
-  if(game.boss){ list.push(game.boss); if(game.boss.children) list=list.concat(game.boss.children.filter(c=>!c.dead)); }
+  if(game.boss){
+    if(game.boss.children) list=list.concat(game.boss.children);
+    if(game.boss.segs) list=list.concat(game.boss.segs);
+    if(!game.boss.segs) list.push(game.boss);
+  }
   return list.filter(t=>!t.dead);
 }
 function tryApplyStatus(e){
   const p=game.player; const chance=p.build.statusChance;
   if(chance<=0 || Math.random()>=chance) return;
-  if(p.build.poisonDmg>0) e.dots=e.dots||[], e.dots.push({color:'#39ff88',dmg:p.build.poisonDmg*p.build.statusDmgMult,interval:0.5,tickTimer:0.5,remaining:3});
+  if(p.build.poisonDmg>0){ e.dots=e.dots||[]; e.dots.push({color:'#39ff88',dmg:p.build.poisonDmg*p.build.statusDmgMult,interval:0.5,tickTimer:0.5,remaining:3}); }
   if(p.build.frostSlow>0){ e.slowFactor=Math.max(0.15,1-p.build.frostSlow); e.slowTimer=2; }
 }
+const easeOutBack=t=>{ const c1=1.70158,c3=c1+1; const tt=Math.min(1,Math.max(0,t)); return 1+c3*Math.pow(tt-1,3)+c1*Math.pow(tt-1,2); };
+
 function updatePlayer(dt){
   const p=game.player;
   if(p.invuln>0) p.invuln-=dt;
@@ -39,7 +45,6 @@ function updatePlayer(dt){
   p.x+=(mvx/len)*p.base.speed*dt; p.y+=(mvy/len)*p.base.speed*dt;
   p.x=Math.max(p.r,Math.min(W-p.r,p.x)); p.y=Math.max(p.r,Math.min(H-p.r,p.y));
 
-  // emergency shield
   if(p.build.shieldEnabled){
     if(p.shieldCd>0) p.shieldCd-=dt;
     if(p.hp/p.maxHp<0.3 && p.shieldCd<=0){
@@ -58,12 +63,22 @@ function updatePlayer(dt){
       p.atkTimer=1/p.base.atkSpd;
       const nearest=inRange.reduce((a,b)=>dist(a.x,a.y,p.x,p.y)<dist(b.x,b.y,p.x,p.y)?a:b);
       p.swingAngle=Math.atan2(nearest.y-p.y,nearest.x-p.x);
+      p.swingAnim=0; game.hitStop=0.035;
       AudioEngine.SE.attack();
       let dmg = p.build.boxerMode? (p.base.damage+p.build.boxerDmg)*p.build.boxerDmgMult*p.build.boxerCombo : p.base.damage;
-      inRange.forEach(e=>{ const crit=Math.random()<p.base.crit; damageTarget(e,dmg*(crit?2:1)); tryApplyStatus(e); });
+      inRange.forEach(e=>{
+        const crit=Math.random()<p.base.crit;
+        damageTarget(e,dmg*(crit?2:1)); tryApplyStatus(e);
+        if(p.base.knockback>0){
+          const ang=Math.atan2(e.y-p.y,e.x-p.x);
+          e.x+=Math.cos(ang)*p.base.knockback*0.12; e.y+=Math.sin(ang)*p.base.knockback*0.12;
+        }
+        spawnParticles(e.x,e.y,'#e8fbff',5);
+      });
       game.swings.push({x:p.x,y:p.y,angle:p.swingAngle,life:0.18,maxLife:0.18,range:p.base.range,boxer:p.build.boxerMode});
     }
   }
+  if(p.swingAnim<1) p.swingAnim=Math.min(1,p.swingAnim+dt/0.22);
 
   if(!p.build.boxerMode){
     if(p.build.bowUnlocked){
@@ -78,21 +93,6 @@ function updatePlayer(dt){
           game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*420,vy:Math.sin(ang)*420,r:5,dmg:p.build.arrowDmg*p.build.bowDmgMult,owner:'player',pierce:false,hitSet:new Set(),color:'#f4ff00'});
         }
         AudioEngine.SE.attack();
-      }
-    }
-    if(p.build.laserUnlocked){
-      p.laserTimer-=dt;
-      if(p.laserTimer<=0){
-        const t=nearestEnemyTo(p.x,p.y);
-        if(t){
-          p.laserTimer=1.4/p.base.atkSpd;
-          const ang=Math.atan2(t.y-p.y,t.x-p.x);
-          const ex=p.x+Math.cos(ang)*p.base.range*2, ey=p.y+Math.sin(ang)*p.base.range*2;
-          game.lightnings.push({type:'laser',x1:p.x,y1:p.y,x2:ex,y2:ey,life:0.22,maxLife:0.22});
-          AudioEngine.SE.laser();
-          const dmg=p.build.laserDmg*p.build.laserDmgMult;
-          targets.forEach(e=>{ if(pointToSegDist(e.x,e.y,p.x,p.y,ex,ey)<p.build.laserWidth/2+e.r){ damageTarget(e,dmg); tryApplyStatus(e); } });
-        }
       }
     }
     if(p.build.mageUnlocked){
@@ -126,7 +126,6 @@ function updatePlayer(dt){
     }
   }
 
-  // drones
   if(p.build.droneCount>0){
     p.droneAngle+=dt*1.4;
     if(!game.drones || game.drones.length!==p.build.droneCount){
@@ -139,7 +138,7 @@ function updatePlayer(dt){
       if(dr.timer<=0){
         const t=nearestEnemyTo(dx,dy);
         if(t && dist(t.x,t.y,dx,dy)<220){
-          dr.timer=0.9;
+          dr.timer=Math.max(0.35,0.9-p.build.droneCdReduce);
           const ang=Math.atan2(t.y-dy,t.x-dx);
           game.bullets.push({x:dx,y:dy,vx:Math.cos(ang)*360,vy:Math.sin(ang)*360,r:4,dmg:p.build.droneDmg*p.build.droneDmgMult,owner:'player',pierce:false,hitSet:new Set(),color:'#00fff2'});
           AudioEngine.SE.drone();
@@ -155,6 +154,35 @@ function damagePlayer(amount){
   const reduced = amount*(1-Math.min(0.85,p.build.dmgReduction*p.build.dmgReductionMult));
   p.hp-=reduced; p.invuln=0.5; AudioEngine.SE.playerHit(); screenShake(10); spawnParticles(p.x,p.y,'#ff2b4d',10);
 }
+
+function drawCyberBat(p,batAngle,alpha,isTrail){
+  ctx.save();
+  ctx.globalAlpha*=alpha;
+  ctx.translate(p.x+Math.cos(batAngle)*(p.r-2), p.y+Math.sin(batAngle)*(p.r-2));
+  ctx.rotate(batAngle);
+  const len=46, headW=13, gripW=4;
+  const grad=ctx.createLinearGradient(0,0,len,0);
+  grad.addColorStop(0,'#0a2a33');
+  grad.addColorStop(0.35,'#0affee');
+  grad.addColorStop(0.72,'#00fff2');
+  grad.addColorStop(1,'#ff00e5');
+  ctx.shadowColor= isTrail? 'transparent' : '#00fff2';
+  ctx.shadowBlur= isTrail?0:16;
+  ctx.beginPath();
+  ctx.moveTo(0,-gripW/2);
+  ctx.quadraticCurveTo(len*0.55,-gripW/2, len,-headW/2);
+  ctx.quadraticCurveTo(len+10,0, len,headW/2);
+  ctx.quadraticCurveTo(len*0.55,gripW/2, 0,gripW/2);
+  ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.stroke();
+  if(!isTrail){
+    ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(len*0.3,0); ctx.lineTo(len*0.75,0); ctx.stroke();
+    ctx.beginPath(); ctx.arc(len*0.78,0,2.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  }
+  ctx.restore();
+}
 function drawPlayer(){
   const p=game.player;
   ctx.save();
@@ -167,14 +195,23 @@ function drawPlayer(){
   ctx.beginPath(); const cy=p.y-p.r-2;
   ctx.moveTo(p.x-12,cy); ctx.lineTo(p.x-12,cy-10); ctx.lineTo(p.x-6,cy-2); ctx.lineTo(p.x,cy-14);
   ctx.lineTo(p.x+6,cy-2); ctx.lineTo(p.x+12,cy-10); ctx.lineTo(p.x+12,cy); ctx.closePath(); ctx.fill();
-  if(!p.build.boxerMode){
-    ctx.strokeStyle='#c98a4b'; ctx.lineWidth=5; ctx.shadowBlur=0;
-    ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+Math.cos(p.swingAngle)*(p.r+14), p.y+Math.sin(p.swingAngle)*(p.r+14)); ctx.stroke();
-  } else {
-    ctx.fillStyle='#ff2b4d'; ctx.shadowBlur=0;
-    ctx.beginPath(); ctx.arc(p.x+Math.cos(p.swingAngle)*(p.r+8), p.y+Math.sin(p.swingAngle)*(p.r+8),7,0,Math.PI*2); ctx.fill();
-  }
   ctx.restore();
+
+  if(!p.build.boxerMode){
+    const off=(1-easeOutBack(p.swingAnim))*-1.3;
+    if(p.swingAnim<0.85){
+      [0.30,0.16].forEach((back,i)=>{
+        const ta=Math.max(0,p.swingAnim-back);
+        const toff=(1-easeOutBack(ta))*-1.3;
+        drawCyberBat(p,p.swingAngle+toff,0.12*(2-i),true);
+      });
+    }
+    drawCyberBat(p,p.swingAngle+off,1,false);
+  } else {
+    ctx.save(); ctx.fillStyle='#ff2b4d'; ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.arc(p.x+Math.cos(p.swingAngle)*(p.r+8), p.y+Math.sin(p.swingAngle)*(p.r+8),7,0,Math.PI*2); ctx.fill(); ctx.restore();
+  }
+
   (game.drones||[]).forEach(dr=>{
     ctx.save(); ctx.shadowColor='#00fff2'; ctx.shadowBlur=10; ctx.fillStyle='#0a1830'; ctx.strokeStyle='#00fff2'; ctx.lineWidth=2;
     roundRectPath(ctx,dr.x-7,dr.y-7,14,14,4); ctx.fill(); ctx.stroke(); ctx.restore();
