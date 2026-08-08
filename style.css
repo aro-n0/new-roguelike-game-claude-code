@@ -68,9 +68,25 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .st-actions{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:10px;pointer-events:auto;}
 .st-actions .neon-btn{background:rgba(8,10,20,0.55);backdrop-filter:blur(2px);}
 .st-hint{position:absolute;bottom:16px;right:16px;font-size:10px;color:#5a6a90;pointer-events:none;}
-.st-tooltip{position:absolute;z-index:60;background:var(--panel-bg);border:1px solid var(--neon-cyan);border-radius:8px;padding:8px 12px;font-size:11px;max-width:220px;color:#cfeff5;pointer-events:none;box-shadow:0 0 14px rgba(0,255,242,0.3);}
 
-/* style.css（追記） */
+/* 3段ツールチップ */
+.st-tooltip{position:absolute;z-index:60;background:var(--panel-bg);border:1px solid var(--neon-cyan);border-radius:8px;padding:8px 12px;font-size:11px;max-width:220px;color:#cfeff5;pointer-events:none;box-shadow:0 0 14px rgba(0,255,242,0.3);display:flex;flex-direction:column;gap:2px;}
+.st-tt-name{ font-weight:bold; color:var(--neon-cyan); font-size:12px; }
+.st-tt-l2{ color:#cfeff5; font-size:11px; }
+.st-tt-l3{ color:var(--neon-yellow); font-size:11px; }
+
+/* レジェンドボタンUI */
+#legendButtons{ position:absolute; bottom:16px; right:16px; z-index:24; display:flex; gap:8px; pointer-events:auto; }
+.legend-btn{
+  background:linear-gradient(135deg,rgba(255,0,229,0.18),rgba(10,10,20,0.85));
+  border:2px solid var(--neon-magenta); color:#ffd1f0; border-radius:10px;
+  padding:8px 14px; font-family:inherit; font-size:11px; cursor:pointer;
+  box-shadow:0 0 12px rgba(255,0,229,0.5); display:flex; flex-direction:column; align-items:center; gap:2px;
+}
+.legend-btn:disabled{ opacity:0.4; cursor:not-allowed; }
+.legend-cd{ font-size:10px; color:var(--neon-yellow); }
+
+/* 通貨アニメーション */
 .global-currency-bar.pop{ animation:currencyPop 0.35s ease; }
 @keyframes currencyPop{
   0%{ transform:scale(1); }
