@@ -707,8 +707,8 @@ canvas.addEventListener('touchend', (e) => { if (screenState === 'skilltree') Sk
 function ensureAudio() { AudioEngine.init(); }
 
 /* ---- ボタンイベント設定 ---- */
-document.getElementById('btnStart').addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); AudioEngine.startBGM(false); startRun(); });
-document.getElementById('btnNewGame').addEventListener('click', () => {
+document.getElementById('btnStart')?.addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); AudioEngine.startBGM(false); startRun(); });
+document.getElementById('btnNewGame')?.addEventListener('click', () => {
   ensureAudio();
   AudioEngine.SE.click();
   const slots = listSaveSlots();
@@ -724,16 +724,16 @@ document.getElementById('btnNewGame').addEventListener('click', () => {
   saveGame();
   startRun();
 });
-document.getElementById('btnContinue').addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); openSaveDialog(); });
-document.getElementById('btnSaveDialogClose').addEventListener('click', () => { AudioEngine.SE.click(); closeSaveDialog(); });
-document.getElementById('btnSkillTree').addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); screenState = 'skilltree'; syncScreenDom(); });
-document.getElementById('btnSettings').addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); screenState = 'settings'; syncScreenDom(); });
-document.getElementById('btnSettingsBack').addEventListener('click', () => { AudioEngine.SE.click(); screenState = 'title'; syncScreenDom(); });
-document.getElementById('btnNext').addEventListener('click', () => { AudioEngine.SE.click(); screenState = 'skilltree'; syncScreenDom(); });
-document.getElementById('btnTreeExit').addEventListener('click', () => { AudioEngine.SE.click(); SkillTree.hideTooltip(); screenState = 'title'; syncScreenDom(); });
-document.getElementById('btnClearBack').addEventListener('click', () => { AudioEngine.SE.click(); screenState = 'title'; syncScreenDom(); });
+document.getElementById('btnContinue')?.addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); openSaveDialog(); });
+document.getElementById('btnSaveDialogClose')?.addEventListener('click', () => { AudioEngine.SE.click(); closeSaveDialog(); });
+document.getElementById('btnSkillTree')?.addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); screenState = 'skilltree'; syncScreenDom(); });
+document.getElementById('btnSettings')?.addEventListener('click', () => { ensureAudio(); AudioEngine.SE.click(); screenState = 'settings'; syncScreenDom(); });
+document.getElementById('btnSettingsBack')?.addEventListener('click', () => { AudioEngine.SE.click(); screenState = 'title'; syncScreenDom(); });
+document.getElementById('btnNext')?.addEventListener('click', () => { AudioEngine.SE.click(); screenState = 'skilltree'; syncScreenDom(); });
+document.getElementById('btnTreeExit')?.addEventListener('click', () => { AudioEngine.SE.click(); SkillTree.hideTooltip(); screenState = 'title'; syncScreenDom(); });
+document.getElementById('btnClearBack')?.addEventListener('click', () => { AudioEngine.SE.click(); screenState = 'title'; syncScreenDom(); });
 
-document.getElementById('btnRespec').addEventListener('click', () => {
+document.getElementById('btnRespec')?.addEventListener('click', () => {
   const slot = gameData.slots[gameData.activeSlot];
   const hasAny = Object.keys(slot.build || {}).length > 0 || Object.keys(gameData.tokenLevels || {}).length > 0;
   if (!hasAny) return;
@@ -742,19 +742,25 @@ document.getElementById('btnRespec').addEventListener('click', () => {
   AudioEngine.SE.skillBuy();
 });
 
-document.getElementById('bgmVol').addEventListener('input', (e) => {
-  AudioEngine.setVol(e.target.value / 100, gameData.settings.se);
-  gameData.settings.bgm = e.target.value / 100;
-  saveGame();
-});
-document.getElementById('seVol').addEventListener('input', (e) => {
-  AudioEngine.setVol(gameData.settings.bgm, e.target.value / 100);
-  gameData.settings.se = e.target.value / 100;
-  saveGame();
-});
+const bgmEl = document.getElementById('bgmVol');
+if (bgmEl) {
+  bgmEl.value = Math.round(gameData.settings.bgm * 100);
+  bgmEl.addEventListener('input', (e) => {
+    AudioEngine.setVol(e.target.value / 100, gameData.settings.se);
+    gameData.settings.bgm = e.target.value / 100;
+    saveGame();
+  });
+}
 
-document.getElementById('bgmVol').value = Math.round(gameData.settings.bgm * 100);
-document.getElementById('seVol').value = Math.round(gameData.settings.se * 100);
+const seEl = document.getElementById('seVol');
+if (seEl) {
+  seEl.value = Math.round(gameData.settings.se * 100);
+  seEl.addEventListener('input', (e) => {
+    AudioEngine.setVol(gameData.settings.bgm, e.target.value / 100);
+    gameData.settings.se = e.target.value / 100;
+    saveGame();
+  });
+}
 
 screenState = 'title';
 syncScreenDom();
