@@ -28,6 +28,17 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .neon-btn.yellow:hover{background:rgba(244,255,0,0.12);box-shadow:0 0 22px var(--neon-yellow);}
 .neon-btn.small{padding:6px 14px;font-size:11px;}
 
+/* セーブスロットダイアログ */
+#saveSlotDialog{ position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; background:rgba(2,2,6,0.9); }
+.save-dialog-panel{ background:var(--panel-bg); border:2px solid var(--neon-cyan); border-radius:14px; padding:24px 30px; min-width:360px; max-width:520px; box-shadow:0 0 30px rgba(0,255,242,0.4); display:flex; flex-direction:column; gap:14px; }
+.save-dialog-title{ text-align:center; letter-spacing:4px; color:var(--neon-cyan); text-shadow:0 0 8px var(--neon-cyan); font-weight:bold; }
+.save-slot-item{ display:flex; justify-content:space-between; align-items:center; border:1.5px solid #2a3550; border-radius:10px; padding:10px 14px; background:rgba(10,12,24,0.7); }
+.save-slot-item.empty{ opacity:0.6; justify-content:center; cursor:pointer; }
+.save-slot-info{ display:flex; flex-direction:column; gap:2px; font-size:11px; color:#cfeff5; }
+.save-slot-info .name{ font-size:13px; color:var(--neon-yellow); text-shadow:0 0 5px var(--neon-yellow); }
+.save-slot-actions{ display:flex; gap:6px; }
+.save-slot-actions button{ font-size:10px; padding:5px 10px; }
+
 .global-currency-bar{position:fixed;top:12px;right:14px;z-index:90;display:flex;gap:8px;pointer-events:none;}
 .curr-pill{display:flex;align-items:center;gap:5px;background:linear-gradient(135deg,rgba(20,8,30,0.95),rgba(5,5,12,0.95));border:1.5px solid var(--neon-yellow);border-radius:16px;padding:4px 10px;font-size:12px;font-weight:bold;color:var(--neon-yellow);text-shadow:0 0 6px var(--neon-yellow);box-shadow:0 0 12px rgba(244,255,0,0.5);}
 .curr-pill.star{border-color:#d1c4ff;color:#efe9ff;text-shadow:0 0 6px #d1c4ff;box-shadow:0 0 12px rgba(209,196,255,0.55);}
@@ -68,6 +79,22 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .st-actions{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:10px;pointer-events:auto;}
 .st-actions .neon-btn{background:rgba(8,10,20,0.55);backdrop-filter:blur(2px);}
 .st-hint{position:absolute;bottom:16px;right:16px;font-size:10px;color:#5a6a90;pointer-events:none;}
+
+/* 2段階タップ選択パネル */
+#skillNodePanel{
+  position:absolute; z-index:60; background:var(--panel-bg); border:2px solid var(--neon-cyan);
+  border-radius:12px; padding:14px 18px; min-width:220px; max-width:280px; box-shadow:0 0 24px rgba(0,255,242,0.4);
+  pointer-events:auto;
+}
+.snp-name{ font-size:14px; font-weight:bold; color:var(--neon-cyan); text-shadow:0 0 6px var(--neon-cyan); margin-bottom:4px; }
+.snp-desc{ font-size:11px; color:#cfeff5; margin-bottom:8px; }
+.snp-row{ display:flex; justify-content:space-between; font-size:11px; color:#9fb0cc; padding:2px 0; }
+.snp-row span:last-child{ color:var(--neon-green); }
+.snp-cost{ margin-top:6px; font-size:12px; color:var(--neon-yellow); text-shadow:0 0 6px var(--neon-yellow); text-align:center; }
+#snpConfirm{ width:100%; margin-top:8px; }
+
+/* ゲートノードピンク発光 */
+.gate-highlight{ filter: drop-shadow(0 0 10px #ff2b9c); }
 
 /* 3段ツールチップ */
 .st-tooltip{position:absolute;z-index:60;background:var(--panel-bg);border:1px solid var(--neon-cyan);border-radius:8px;padding:8px 12px;font-size:11px;max-width:220px;color:#cfeff5;pointer-events:none;box-shadow:0 0 14px rgba(0,255,242,0.3);display:flex;flex-direction:column;gap:2px;}
