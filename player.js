@@ -68,11 +68,11 @@ function updatePlayer(dt){
       let dmg = p.build.boxerMode? (p.base.damage+p.build.boxerDmg)*p.build.boxerDmgMult*p.build.boxerCombo : p.base.damage;
       inRange.forEach(e=>{
         const crit=Math.random()<p.base.crit;
-        damageTarget(e,dmg*(crit?2:1)); tryApplyStatus(e);
-        if(p.base.knockback>0){
-          const ang=Math.atan2(e.y-p.y,e.x-p.x);
-          e.x+=Math.cos(ang)*p.base.knockback*0.12; e.y+=Math.sin(ang)*p.base.knockback*0.12;
-        }
+        damageTarget(e,dmg*(crit?2:1),crit); // 第3引数に crit (クリティカルフラグ) を追加
+        tryApplyStatus(e);
+        const kb=(40+p.base.knockback)*0.35; // ノックバック力を強化
+        const ang=Math.atan2(e.y-p.y,e.x-p.x);
+        e.x+=Math.cos(ang)*kb; e.y+=Math.sin(ang)*kb;
         spawnParticles(e.x,e.y,'#e8fbff',5);
       });
       game.swings.push({x:p.x,y:p.y,angle:p.swingAngle,life:0.18,maxLife:0.18,range:p.base.range,boxer:p.build.boxerMode});
