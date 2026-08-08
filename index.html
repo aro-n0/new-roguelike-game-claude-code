@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -19,21 +18,33 @@
     <div class="boss-hp-outer"><div class="boss-hp-inner" id="bossHpInner"></div></div>
   </div>
 
+  <!-- 画面1: タイトル画面（ボタン3つ） -->
   <div id="titleScreen" class="screen">
     <div class="glitch-title">NEON DECAY</div>
     <div class="sub-title">// CYBER SURVIVOR PROTOCOL //</div>
     <div class="menu-tabs">
       <button class="neon-btn" id="btnNewGame">はじめから</button>
       <button class="neon-btn magenta" id="btnContinue">続きから</button>
-      <button class="neon-btn magenta" id="btnSkillTree">スキルツリー</button>
       <button class="neon-btn yellow" id="btnSettings">設定</button>
     </div>
-    <div style="font-size:11px;color:#7d8cb0;">最高到達WAVE: <span id="titleMaxWave">0</span></div>
+  </div>
+
+  <!-- 画面3: メインメニュー画面（データロード時・ツリー終了時の移行先） -->
+  <div id="menuScreen" class="screen hidden">
+    <div class="glitch-title" style="font-size:40px;">NEON DECAY</div>
+    <div class="sub-title" style="color:var(--neon-green); text-shadow:0 0 8px var(--neon-green);">// MAIN CONSOLE //</div>
+    <div class="menu-tabs">
+      <button class="neon-btn" id="btnPlay">プレイ</button>
+      <button class="neon-btn magenta" id="btnMenuSkillTree">スキルツリー</button>
+      <button class="neon-btn yellow" id="btnMenuSettings">設定</button>
+    </div>
+    <div style="font-size:11px;color:#7d8cb0;">最高到達WAVE: <span id="menuMaxWave">0</span></div>
   </div>
 
   <div id="saveSlotDialog" class="hidden">
     <div class="save-dialog-panel">
       <div class="save-dialog-title">SAVE DATA</div>
+      <div style="font-size:10px;color:#8a99ad;margin-bottom:8px;">※名前タップで変更可</div>
       <div id="saveSlotList"></div>
       <button class="neon-btn small" id="btnSaveDialogClose">閉じる</button>
     </div>
