@@ -1,21 +1,31 @@
 /* main.js */
 const SAVE_KEY='neonDecaySaveV3';
+
 function defaultSave(){
-  return { tokens:0, skillStars:0, maxWave:0, tokenLevels:{},
+  return { tokens:0, skillStars:0, maxWave:0, tokenLevels:{}, totalTokensEarned:0,
     slots:[{name:'スロット1',build:{}},{name:'スロット2',build:{}},{name:'スロット3',build:{}},{name:'スロット4',build:{}},{name:'スロット5',build:{}}],
     activeSlot:0, milestonesClaimed:[], settings:{bgm:0.35,se:0.7} };
 }
+
 function loadGame(){
   try{
     const raw=localStorage.getItem(SAVE_KEY); if(!raw) return defaultSave();
     const p=JSON.parse(raw); const d=defaultSave();
     return { tokens:p.tokens||0, skillStars:p.skillStars||0, maxWave:p.maxWave||0, tokenLevels:p.tokenLevels||{},
+      totalTokensEarned:p.totalTokensEarned||(p.tokens||0),
       slots:(p.slots&&p.slots.length===5)?p.slots:d.slots, activeSlot:p.activeSlot||0,
       milestonesClaimed:p.milestonesClaimed||[], settings:Object.assign({bgm:0.35,se:0.7},p.settings||{}) };
   }catch(e){ return defaultSave(); }
 }
 let gameData=loadGame();
+
 function saveGame(){ localStorage.setItem(SAVE_KEY, JSON.stringify(gameData)); }
+
+/* トークン獲得箇所すべてで totalTokensEarned も加算する共通関数を追加 */
+function grantTokens(amount){
+  gameData.tokens+=amount;
+  gameData.totalTokensEarned+=amount;
+}
 
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
@@ -45,7 +55,7 @@ function pointToSegDist(px,py,x1,y1,x2,y2){
   return dist(px,py,x1+t*dx,y1+t*dy);
 }
 
-/* damageTarget を差し替え：クリティカル引数とダメージ数値ポップアップ対応 */
+/* damageTarget: クリティカル引数とダメージ数値ポップアップ対応 */
 function damageTarget(e,amount,isCrit){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
   spawnDamageNumber(e.x,e.y,amount,!!isCrit);
@@ -89,7 +99,7 @@ let screenState='title';
 let game=null;
 let lastTime=0;
 
-/* startRun の game オブジェクト初期化に floatingTexts / chestPopup / flashTimer を追加 */
+/* startRun の game オブジェクト初期化 */
 function startRun(){
   game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],swings:[],lightnings:[],fireballs:[],drones:[],
     floatingTexts:[],chestPopup:null,flashTimer:0,
@@ -101,7 +111,13 @@ function startRun(){
   lastTime=performance.now(); requestAnimationFrame(loop);
 }
 function showWaveBanner(w){ const el=document.getElementById('waveBanner'); el.textContent='WAVE '+w; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
-function showStarBanner(){ const el=document.getElementById('starBanner'); el.textContent='🌟 スキルスター獲得！'; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
+
+/* 引数対応の showStarBanner */
+function showStarBanner(n){ 
+  const el=document.getElementById('starBanner'); 
+  el.textContent=`🌟 スキルスター +${n} 獲得！`; 
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); 
+}
 
 function loop(now){
   if(!game||!game.running) return;
@@ -120,13 +136,18 @@ function triggerBoss(wave){
   AudioEngine.SE.bossAppear(); AudioEngine.startBGM(true);
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
+
+/* endBoss: Wave別スター数に変更 */
+const BOSS_STAR_REWARD={10:2,20:2,30:3,40:3,50:5};
 function endBoss(){
   const wave=game.boss.wave;
   dissolveBoss(); AudioEngine.SE.bossDie();
   document.getElementById('bossHpWrap').classList.add('hidden');
   if(!gameData.milestonesClaimed.includes(wave)){
-    gameData.milestonesClaimed.push(wave); gameData.skillStars+=1; game.starsThisRun+=1;
-    saveGame(); AudioEngine.SE.starGain(); showStarBanner();
+    gameData.milestonesClaimed.push(wave);
+    const reward=BOSS_STAR_REWARD[wave]||1;
+    gameData.skillStars+=reward; game.starsThisRun+=reward;
+    saveGame(); AudioEngine.SE.starGain(); showStarBanner(reward);
   }
   game.boss=null; game.bossActive=false;
   AudioEngine.startBGM(false);
@@ -135,6 +156,7 @@ function endBoss(){
   game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
   showWaveBanner(game.wave); AudioEngine.SE.waveStart();
 }
+
 function triggerGameClear(){
   game.running=false; AudioEngine.SE.gameClear(); AudioEngine.stopBGM();
   gameData.maxWave=Math.max(gameData.maxWave,50); saveGame();
@@ -209,12 +231,13 @@ function update(dt){
   for(const pt of game.particles){ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vx*=0.92; pt.vy*=0.92; pt.life-=dt; }
   game.particles=game.particles.filter(pt=>pt.life>0);
 
-  /* チェスト取得処理の置き換え */
+  /* update内チェスト取得: grantTokens を使用 */
   for(const c of game.chests){
     c.phase+=dt*3;
     if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){
       c.collected=true;
       const gained=Math.round(c.value*p.base.tokenMul);
+      grantTokens(gained);
       game.tokensThisRun+=gained;
       AudioEngine.SE.chestFanfare();
       spawnParticles(c.x,c.y,'#f4ff00',40);
@@ -223,11 +246,16 @@ function update(dt){
   }
   game.chests=game.chests.filter(c=>!c.collected);
 
-  /* フロート演出の更新を追加 */
+  /* フロート演出の更新 */
   game.floatingTexts.forEach(t=>{ t.y+=t.vy*dt; t.vy*=0.94; t.life-=dt; });
   game.floatingTexts=game.floatingTexts.filter(t=>t.life>0);
   if(game.flashTimer>0) game.flashTimer=Math.max(0,game.flashTimer-dt);
   if(game.chestPopup){ game.chestPopup.timer-=dt; if(game.chestPopup.timer<=0) game.chestPopup=null; }
+
+  /* レジェンドクールダウン更新とボタン再描画 */
+  if(!game.legendCooldowns) game.legendCooldowns={crosscut:0,shotgun:0,lifedrain:0};
+  Object.keys(game.legendCooldowns).forEach(k=>{ if(game.legendCooldowns[k]>0) game.legendCooldowns[k]=Math.max(0,game.legendCooldowns[k]-dt); });
+  renderLegendButtons();
 
   updateHUD();
   if(p.hp<=0) endRun();
@@ -242,17 +270,40 @@ function updateHUD(){
   document.getElementById('runTokenText').textContent=game.tokensThisRun;
   document.getElementById('timeText').textContent=fmtTime(game.elapsed);
 }
+
+/* endRun: grantTokens を使用 */
 function endRun(){
   game.running=false; AudioEngine.SE.gameOver(); AudioEngine.stopBGM();
   document.getElementById('bossHpWrap').classList.add('hidden');
   const tokensEarned=Math.round((game.wave*15+game.kills*1)*game.player.base.tokenMul+game.tokensThisRun);
-  gameData.tokens+=tokensEarned; gameData.maxWave=Math.max(gameData.maxWave,game.wave); saveGame();
+  grantTokens(tokensEarned);
+  gameData.maxWave=Math.max(gameData.maxWave,game.wave); saveGame();
   document.getElementById('statWave').textContent=game.wave;
   document.getElementById('statKills').textContent=game.kills;
   document.getElementById('statTime').textContent=fmtTime(game.elapsed);
   document.getElementById('statTokens').textContent=tokensEarned;
   document.getElementById('statStars').textContent=game.starsThisRun;
   setTimeout(()=>{ screenState='gameover'; syncScreenDom(); },500);
+}
+
+/* レジェンドアクティブスキルUI: HUDにボタンとクールダウン表示 */
+function renderLegendButtons(){
+  const wrap=document.getElementById('legendButtons'); if(!wrap) return;
+  wrap.innerHTML='';
+  const b=game.player.build;
+  const defs=[];
+  if(b.legendMage) defs.push({id:'legendMage',label:'クロスカット',key:'crosscut'});
+  if(b.legendGunner) defs.push({id:'legendGunner',label:'破滅の散弾',key:'shotgun'});
+  if(b.legendVitality) defs.push({id:'legendVitality',label:'吸血',key:'lifedrain'});
+  defs.forEach(d=>{
+    const btn=document.createElement('button');
+    btn.className='legend-btn';
+    const cd=game.legendCooldowns[d.key]||0;
+    btn.disabled = cd>0 || (d.key==='lifedrain' && game.player.hp>=game.player.maxHp*0.99);
+    btn.innerHTML=`<span>${d.label}</span>${cd>0?`<span class="legend-cd">${cd.toFixed(1)}s</span>`:''}`;
+    btn.addEventListener('click',()=>triggerLegendSkill(d.key));
+    wrap.appendChild(btn);
+  });
 }
 
 function render(){
@@ -396,17 +447,25 @@ document.getElementById('btnSettingsBack').addEventListener('click',()=>{ AudioE
 document.getElementById('btnNext').addEventListener('click',()=>{ AudioEngine.SE.click(); screenState='skilltree'; syncScreenDom(); });
 document.getElementById('btnTreeExit').addEventListener('click',()=>{ AudioEngine.SE.click(); SkillTree.hideTooltip(); screenState='title'; syncScreenDom(); });
 document.getElementById('btnClearBack').addEventListener('click',()=>{ AudioEngine.SE.click(); screenState='title'; syncScreenDom(); });
+
+/* 振り直し: 全ノード(トークン木・スロットの星ツリー)を初期化し所持トークンをtotalTokensEarnedへ全額復元 */
 document.getElementById('btnRespec').addEventListener('click',()=>{
+  if(!confirm('全スキル（基礎ツリー含む）を初期化し、獲得済みの累計トークンとスターを全額返却します。よろしいですか？')) return;
   const slot=gameData.slots[gameData.activeSlot];
-  let starsInvested=0;
-  Object.keys(slot.build||{}).forEach(id=>{ const n=findNode(id); const lvl=slot.build[id]; for(let l=0;l<lvl;l++) starsInvested+=costAt(n,l); });
-  if(starsInvested<=0) return;
-  const tokenCost=Math.round(starsInvested*5);
-  if(gameData.tokens<tokenCost){ alert('トークンが足りません（必要: '+tokenCost+'）'); return; }
-  if(!confirm('トークン'+tokenCost+'を消費して「'+slot.name+'」のスキルスターを振り直しますか？')) return;
-  gameData.tokens-=tokenCost; gameData.skillStars+=starsInvested; slot.build={};
+  let starsRefund=0;
+  Object.keys(slot.build||{}).forEach(id=>{
+    const n=findNode(id); if(!n) return;
+    const lvl=slot.build[id];
+    for(let l=0;l<lvl;l++){ if(n.costType==='star') starsRefund+=costAt(n,l); }
+  });
+  gameData.tokenLevels={};
+  slot.build={};
+  gameData.tokens=gameData.totalTokensEarned;
+  gameData.skillStars+=starsRefund;
   AudioEngine.SE.skillBuy(); saveGame();
+  if(window.onCurrencyChange) window.onCurrencyChange();
 });
+
 document.getElementById('bgmVol').addEventListener('input',(e)=>{ AudioEngine.setVol(e.target.value/100,gameData.settings.se); gameData.settings.bgm=e.target.value/100; saveGame(); });
 document.getElementById('seVol').addEventListener('input',(e)=>{ AudioEngine.setVol(gameData.settings.bgm,e.target.value/100); gameData.settings.se=e.target.value/100; saveGame(); });
 document.getElementById('bgmVol').value=Math.round(gameData.settings.bgm*100);
