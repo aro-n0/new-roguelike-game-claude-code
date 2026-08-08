@@ -23,11 +23,20 @@
     <div class="glitch-title">NEON DECAY</div>
     <div class="sub-title">// CYBER SURVIVOR PROTOCOL //</div>
     <div class="menu-tabs">
-      <button class="neon-btn" id="btnStart">ゲーム開始</button>
+      <button class="neon-btn" id="btnNewGame">はじめから</button>
+      <button class="neon-btn magenta" id="btnContinue">続きから</button>
       <button class="neon-btn magenta" id="btnSkillTree">スキルツリー</button>
       <button class="neon-btn yellow" id="btnSettings">設定</button>
     </div>
     <div style="font-size:11px;color:#7d8cb0;">最高到達WAVE: <span id="titleMaxWave">0</span></div>
+  </div>
+
+  <div id="saveSlotDialog" class="hidden">
+    <div class="save-dialog-panel">
+      <div class="save-dialog-title">SAVE DATA</div>
+      <div id="saveSlotList"></div>
+      <button class="neon-btn small" id="btnSaveDialogClose">閉じる</button>
+    </div>
   </div>
 
   <div id="settingsScreen" class="screen hidden">
@@ -88,6 +97,15 @@
       <button class="neon-btn small" id="btnTreeExit">終了</button>
     </div>
     <div class="st-hint">ホイールでズーム / ドラッグでパン</div>
+  </div>
+
+  <div id="skillNodePanel" class="hidden">
+    <div class="snp-name" id="snpName"></div>
+    <div class="snp-desc" id="snpDesc"></div>
+    <div class="snp-row"><span>現在の効果</span><span id="snpCurrent"></span></div>
+    <div class="snp-row"><span>次Lvの効果</span><span id="snpNext"></span></div>
+    <div class="snp-cost" id="snpCost"></div>
+    <button class="neon-btn small yellow" id="snpConfirm">タップでもう一度確定</button>
   </div>
 </div>
 
