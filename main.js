@@ -397,13 +397,18 @@ function stLoop(now){
   requestAnimationFrame(stLoop);
 }
 
+/* renderSlotBar: クリック時に再描画してactive表示を即時反映 */
 function renderSlotBar(){
   const bar=document.getElementById('stSlotBar'); bar.innerHTML='';
   gameData.slots.forEach((s,i)=>{
     const btn=document.createElement('button');
     btn.className='slot-btn'+(i===gameData.activeSlot?' active':'');
     btn.textContent=s.name; btn.title='ダブルクリックで名称変更';
-    btn.addEventListener('click',()=>{ gameData.activeSlot=i; saveGame(); });
+    btn.addEventListener('click',()=>{
+      gameData.activeSlot=i;
+      saveGame();
+      renderSlotBar();
+    });
     btn.addEventListener('dblclick',()=>{ const nn=prompt('スロット名を入力',s.name); if(nn){ s.name=nn.slice(0,12); saveGame(); renderSlotBar(); } });
     bar.appendChild(btn);
   });
@@ -448,22 +453,14 @@ document.getElementById('btnNext').addEventListener('click',()=>{ AudioEngine.SE
 document.getElementById('btnTreeExit').addEventListener('click',()=>{ AudioEngine.SE.click(); SkillTree.hideTooltip(); screenState='title'; syncScreenDom(); });
 document.getElementById('btnClearBack').addEventListener('click',()=>{ AudioEngine.SE.click(); screenState='title'; syncScreenDom(); });
 
-/* 振り直し: 全ノード(トークン木・スロットの星ツリー)を初期化し所持トークンをtotalTokensEarnedへ全額復元 */
+/* 振り直しボタン: skilltree.js の respecActiveSlot に処理を一本化 */
 document.getElementById('btnRespec').addEventListener('click',()=>{
-  if(!confirm('全スキル（基礎ツリー含む）を初期化し、獲得済みの累計トークンとスターを全額返却します。よろしいですか？')) return;
   const slot=gameData.slots[gameData.activeSlot];
-  let starsRefund=0;
-  Object.keys(slot.build||{}).forEach(id=>{
-    const n=findNode(id); if(!n) return;
-    const lvl=slot.build[id];
-    for(let l=0;l<lvl;l++){ if(n.costType==='star') starsRefund+=costAt(n,l); }
-  });
-  gameData.tokenLevels={};
-  slot.build={};
-  gameData.tokens=gameData.totalTokensEarned;
-  gameData.skillStars+=starsRefund;
-  AudioEngine.SE.skillBuy(); saveGame();
-  if(window.onCurrencyChange) window.onCurrencyChange();
+  const hasAny = Object.keys(slot.build||{}).length>0 || Object.keys(gameData.tokenLevels||{}).length>0;
+  if(!hasAny) return;
+  if(!confirm('全スキル（基礎ツリー含む）を初期化し、獲得済みの累計トークンとスターを全額返却します。よろしいですか？')) return;
+  respecActiveSlot();
+  AudioEngine.SE.skillBuy();
 });
 
 document.getElementById('bgmVol').addEventListener('input',(e)=>{ AudioEngine.setVol(e.target.value/100,gameData.settings.se); gameData.settings.bgm=e.target.value/100; saveGame(); });
