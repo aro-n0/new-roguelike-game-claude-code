@@ -61,7 +61,13 @@ const AudioEngine=(function(){
     chestFanfare(){
       [440,554,660,880].forEach((f,i)=>tone({freq:f,slideTo:f*1.4,dur:0.35,type:'sine',gain:0.26,delay:i*0.09}));
       noise({dur:0.3,gain:0.15,filterFreq:2200,delay:0.02});
-    }
+    },
+    crosscut(){ tone({freq:2400,slideTo:400,dur:0.4,type:'sawtooth',gain:0.3}); noise({dur:0.5,gain:0.25,filterFreq:4000}); },
+    shotgunCock(){ noise({dur:0.12,gain:0.3,filterFreq:800}); tone({freq:80,slideTo:40,dur:0.5,type:'square',gain:0.3,delay:0.08}); noise({dur:0.4,gain:0.28,filterFreq:1500,delay:0.1}); },
+    lifedrain(){ tone({freq:60,slideTo:80,dur:0.6,type:'sine',gain:0.3}); tone({freq:60,slideTo:80,dur:0.6,type:'sine',gain:0.25,delay:0.5}); },
+    superCrit(){ tone({freq:50,slideTo:25,dur:0.8,type:'square',gain:0.4}); noise({dur:0.5,gain:0.3,filterFreq:200}); },
+    astraArrow(){ tone({freq:300,slideTo:2000,dur:0.5,type:'sawtooth',gain:0.25}); noise({dur:0.3,gain:0.2,filterFreq:3000,delay:0.1}); },
+    mothershipLaser(){ tone({freq:150,slideTo:1800,dur:0.35,type:'sawtooth',gain:0.2}); }
   };
   function startBGM(boss){
     if(!ctx) return; stopBGM(); bossMode=!!boss;
