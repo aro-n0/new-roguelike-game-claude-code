@@ -1,4 +1,3 @@
-/* style.css */
 :root{
   --neon-cyan:#00fff2; --neon-magenta:#ff00e5; --neon-yellow:#f4ff00;
   --neon-green:#39ff88; --neon-red:#ff2b4d; --neon-purple:#a600ff;
@@ -35,7 +34,8 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .save-slot-item{ display:flex; justify-content:space-between; align-items:center; border:1.5px solid #2a3550; border-radius:10px; padding:10px 14px; background:rgba(10,12,24,0.7); }
 .save-slot-item.empty{ opacity:0.6; justify-content:center; cursor:pointer; }
 .save-slot-info{ display:flex; flex-direction:column; gap:2px; font-size:11px; color:#cfeff5; }
-.save-slot-info .name{ font-size:13px; color:var(--neon-yellow); text-shadow:0 0 5px var(--neon-yellow); }
+.save-slot-info .name{ font-size:13px; color:var(--neon-yellow); text-shadow:0 0 5px var(--neon-yellow); cursor:pointer; }
+.save-slot-hint{ font-size:9px; color:#5a6a90; margin-top:2px; }
 .save-slot-actions{ display:flex; gap:6px; }
 .save-slot-actions button{ font-size:10px; padding:5px 10px; }
 
