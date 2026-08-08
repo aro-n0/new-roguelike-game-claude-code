@@ -44,15 +44,34 @@ function pointToSegDist(px,py,x1,y1,x2,y2){
   let t=((px-x1)*dx+(py-y1)*dy)/len2; t=Math.max(0,Math.min(1,t));
   return dist(px,py,x1+t*dx,y1+t*dy);
 }
-function damageTarget(e,amount){
+
+/* damageTarget を差し替え：クリティカル引数とダメージ数値ポップアップ対応 */
+function damageTarget(e,amount,isCrit){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
+  spawnDamageNumber(e.x,e.y,amount,!!isCrit);
   if(e.hp<=0 && !e.dead){
     e.dead=true;
     const isBossPart = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
     if(!isBossPart){ game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16); spawnChestMaybe(e.x,e.y); }
   }
 }
-function spawnChestMaybe(x,y){ if(Math.random()<0.005){ game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,value:25+Math.floor(Math.random()*40)}); } }
+function spawnDamageNumber(x,y,amount,isCrit){
+  game.floatingTexts.push({x,y:y-10,text:Math.round(amount).toString(),isCrit,life:0.9,maxLife:0.9,vy:-46});
+  if(isCrit){
+    game.floatingTexts.push({x,y:y-34,text:'CRITICAL!',isCrit:true,critLabel:true,life:0.9,maxLife:0.9,vy:-46});
+    game.flashTimer=0.15;
+    AudioEngine.SE.critical();
+  }
+}
+
+/* spawnChestMaybe: Wave依存トークン量に調整 */
+function spawnChestMaybe(x,y){
+  if(Math.random()<0.005){
+    const val=Math.min(200, 20+game.wave*4+Math.floor(Math.random()*10));
+    game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,value:val});
+  }
+}
+
 function spawnParticles(x,y,color,count){
   for(let i=0;i<count;i++){
     const ang=Math.random()*Math.PI*2, spd=60+Math.random()*180;
@@ -70,8 +89,10 @@ let screenState='title';
 let game=null;
 let lastTime=0;
 
+/* startRun の game オブジェクト初期化に floatingTexts / chestPopup / flashTimer を追加 */
 function startRun(){
   game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],swings:[],lightnings:[],fireballs:[],drones:[],
+    floatingTexts:[],chestPopup:null,flashTimer:0,
     wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,spawnQueue:waveEnemyCount(1),kills:0,elapsed:0,shake:0,running:true,
     tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0};
   game.player.x=W/2; game.player.y=H/2;
@@ -141,7 +162,8 @@ function update(dt){
         showWaveBanner(game.wave); AudioEngine.SE.waveStart();
       }
     }
-    const spawnInterval=Math.max(0.18,0.9-game.wave*0.02);
+    /* スポーン間隔を緩やかに変更 */
+    const spawnInterval=Math.max(0.5,1.5-game.wave*0.02);
     if(game.spawnTimer>=spawnInterval && (game.spawnQueue||0)>0){
       game.spawnTimer=0; game.spawnQueue--; game.enemies.push(spawnEnemy(game.wave));
     }
@@ -187,11 +209,25 @@ function update(dt){
   for(const pt of game.particles){ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vx*=0.92; pt.vy*=0.92; pt.life-=dt; }
   game.particles=game.particles.filter(pt=>pt.life>0);
 
+  /* チェスト取得処理の置き換え */
   for(const c of game.chests){
     c.phase+=dt*3;
-    if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){ c.collected=true; game.tokensThisRun+=Math.round(c.value*p.base.tokenMul); AudioEngine.SE.chest(); spawnParticles(c.x,c.y,'#f4ff00',18); }
+    if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){
+      c.collected=true;
+      const gained=Math.round(c.value*p.base.tokenMul);
+      game.tokensThisRun+=gained;
+      AudioEngine.SE.chestFanfare();
+      spawnParticles(c.x,c.y,'#f4ff00',40);
+      game.chestPopup={text:'+'+gained+' TOKENS!',timer:1.8,maxTimer:1.8};
+    }
   }
   game.chests=game.chests.filter(c=>!c.collected);
+
+  /* フロート演出の更新を追加 */
+  game.floatingTexts.forEach(t=>{ t.y+=t.vy*dt; t.vy*=0.94; t.life-=dt; });
+  game.floatingTexts=game.floatingTexts.filter(t=>t.life>0);
+  if(game.flashTimer>0) game.flashTimer=Math.max(0,game.flashTimer-dt);
+  if(game.chestPopup){ game.chestPopup.timer-=dt; if(game.chestPopup.timer<=0) game.chestPopup=null; }
 
   updateHUD();
   if(p.hp<=0) endRun();
@@ -255,18 +291,61 @@ function render(){
     ctx.shadowColor=ctx.strokeStyle; ctx.shadowBlur=18; ctx.beginPath(); ctx.arc(s.x,s.y,s.range*0.7,s.angle-0.9,s.angle+0.9); ctx.stroke(); ctx.restore();
   }
   drawPlayer();
+
+  /* フラッシュ演出・フロートテキスト・宝箱ポップアップの描画 */
+  for(const t of game.floatingTexts){
+    const a=Math.max(0,t.life/t.maxLife);
+    ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center'; ctx.textBaseline='middle';
+    if(t.critLabel){
+      ctx.font='bold 26px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=18;
+    } else if(t.isCrit){
+      ctx.font='bold 30px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=16;
+    } else {
+      ctx.font='bold 16px Consolas'; ctx.fillStyle='#c4f5ff'; ctx.shadowColor='#00fff2'; ctx.shadowBlur=10;
+    }
+    ctx.fillText(t.text, t.x, t.y);
+    ctx.restore();
+  }
+  if(game.flashTimer>0){
+    ctx.save(); ctx.globalAlpha=Math.min(0.4,game.flashTimer*2); ctx.fillStyle='#fff8c0'; ctx.fillRect(-shakeX-40,-shakeY-40,W+80,H+80); ctx.restore();
+  }
   ctx.restore();
+  if(game.chestPopup){
+    const cp=game.chestPopup;
+    const prog=1-cp.timer/cp.maxTimer;
+    const scale = prog<0.2? (prog/0.2) : (cp.timer<0.4? cp.timer/0.4 : 1);
+    ctx.save();
+    ctx.globalAlpha=Math.min(1,cp.timer/0.4+0.3);
+    ctx.translate(W/2,H*0.32);
+    ctx.scale(Math.max(0.4,scale),Math.max(0.4,scale));
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='bold 42px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=26;
+    ctx.fillText(cp.text,0,0);
+    ctx.restore();
+  }
 }
 
 function starIconHtml(){ return `<svg class="star-icon-svg" viewBox="0 0 100 140"><path d="M50 2 C54 2 56 6 58 14 L66 46 C82 48 96 50 98 54 C100 58 96 62 84 70 L64 84 C68 100 72 116 70 122 C68 128 62 128 50 118 C38 128 32 128 30 122 C28 116 32 100 36 84 L16 70 C4 62 0 58 2 54 C4 50 18 48 34 46 L42 14 C44 6 46 2 50 2 Z" fill="url(#starGrad)" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`; }
-function renderGlobalCurrency(){ document.getElementById('globalCurrency').innerHTML=`<div class="curr-pill">⬡ ${gameData.tokens}</div><div class="curr-pill star">${starIconHtml()} ${gameData.skillStars}</div>`; }
 
+/* renderGlobalCurrency をリアルタイム更新対応に変更し、onCurrencyChange をグローバル公開 */
+function renderGlobalCurrency(){ document.getElementById('globalCurrency').innerHTML=`<div class="curr-pill">⬡ ${gameData.tokens}</div><div class="curr-pill star">${starIconHtml()} ${gameData.skillStars}</div>`; }
+function onCurrencyChange(){
+  renderGlobalCurrency();
+  const el=document.getElementById('globalCurrency');
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+}
+window.onCurrencyChange=onCurrencyChange;
+
+/* stLoop: SkillTree.render に dt を渡すよう変更 */
+let stLastTime=0;
 let stLoopRunning=false;
-function stLoop(){
+function stLoop(now){
   if(screenState!=='skilltree') { stLoopRunning=false; return; }
-  SkillTree.render();
+  const dt=stLastTime? Math.min(0.05,(now-stLastTime)/1000):0.016; stLastTime=now;
+  SkillTree.render(dt);
   requestAnimationFrame(stLoop);
 }
+
 function renderSlotBar(){
   const bar=document.getElementById('stSlotBar'); bar.innerHTML='';
   gameData.slots.forEach((s,i)=>{
@@ -294,7 +373,8 @@ function syncScreenDom(){
   else if(screenState==='skilltree'){
     document.getElementById('skilltreeOverlay').classList.remove('hidden');
     renderSlotBar(); SkillTree.reset();
-    if(!stLoopRunning){ stLoopRunning=true; requestAnimationFrame(stLoop); }
+    /* syncScreenDom 内のスキルツリー起動部分、stLoopRunning判定 */
+    if(!stLoopRunning){ stLoopRunning=true; stLastTime=0; requestAnimationFrame(stLoop); }
   }
 }
 
@@ -302,6 +382,11 @@ canvas.addEventListener('wheel',(e)=>{ if(screenState==='skilltree') SkillTree.o
 canvas.addEventListener('mousedown',(e)=>{ if(screenState==='skilltree') SkillTree.onDown(e); });
 canvas.addEventListener('mousemove',(e)=>{ if(screenState==='skilltree') SkillTree.onMove(e); });
 window.addEventListener('mouseup',(e)=>{ if(screenState==='skilltree') SkillTree.onUp(e); });
+
+/* タッチイベント配線を追加 */
+canvas.addEventListener('touchstart',(e)=>{ if(screenState==='skilltree') SkillTree.onTouchStart(e); },{passive:false});
+canvas.addEventListener('touchmove',(e)=>{ if(screenState==='skilltree') SkillTree.onTouchMove(e); },{passive:false});
+canvas.addEventListener('touchend',(e)=>{ if(screenState==='skilltree') SkillTree.onTouchEnd(e); },{passive:false});
 
 function ensureAudio(){ AudioEngine.init(); }
 document.getElementById('btnStart').addEventListener('click',()=>{ ensureAudio(); AudioEngine.SE.click(); AudioEngine.startBGM(false); startRun(); });
