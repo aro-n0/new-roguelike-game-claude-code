@@ -358,7 +358,7 @@ function respecActiveSlot(){
   gameData.tokenLevels={};
   slot.build={};
   gameData.tokens=gameData.totalTokensEarned||0;
-  gameData.skillStars+=starsRefund;
+  gameData.skillStars=(gameData.skillStars||0)+starsRefund;
   saveGame();
   if(window.onCurrencyChange) window.onCurrencyChange();
 }
@@ -369,7 +369,8 @@ function computePlayerStats(){
     bowUnlocked:false,arrowCount:1,arrowDmg:0,bowDmgMult:1,bowAtkSpd:0,arrowPierce:0,
     boxerMode:false,boxerDmg:0,boxerCombo:1,boxerDmgMult:1,boxerCritBonus:0,
     mageUnlocked:false,chainCount:0,mageDmg:0,mageDmgMult:1,fireballRadius:0,fireballDmg:0,mageAtkSpd:0,
-    vitalityUnlocked:false,vitHp:0,dmgReduction:0,dmgReductionMult:1,shieldEnabled:false,shieldCdReduce:0,regenEnabled:false,shieldMaxBonus:0,shieldAutoRegen:false,
+    vitalityUnlocked:false,vitHp:0,dmgReduction:0,dmgReductionMult:1,
+    regenEnabled:false,shieldMaxBonus:0,shieldAutoRegen:false,
     droneCount:0,droneDmg:0,droneDmgMult:1,droneCdReduce:0,droneRange:0,
     gunnerUnlocked:false,pistolDmg:0,pistolSpd:0,sniperDmg:0,sniperPierce:0,gunnerDmgMult:1,
     legendMage:false,legendDrone:false,legendChem:false,legendBoxer:false,legendBow:false,legendGunner:false,legendVitality:false};
