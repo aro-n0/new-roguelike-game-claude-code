@@ -90,14 +90,18 @@ function screenShake(a){ game.shake=Math.max(game.shake,a); }
 function waveEnemyCount(wave){ return Math.round(10+(wave-1)*4.4); }
 function grantTokens(amount){ gameData.tokens+=amount; gameData.totalTokensEarned=(gameData.totalTokensEarned||0)+amount; }
 
-/* damagePlayer: shieldBreak呼び出しを安全ガード化（未定義でも既存の被弾音にフォールバック） */
+/* damagePlayer: シールド消費時の破壊演出を強化（白フラッシュ後に青粒子飛散） */
 function damagePlayer(amount){
   const p=game.player; if(p.invuln>0) return;
   if((p.shield||0)>0){
     p.shield--;
     p.invuln=0.3;
     if(AudioEngine.SE.shieldBreak){ AudioEngine.SE.shieldBreak(); } else { AudioEngine.SE.playerHit(); }
-    spawnParticles(p.x,p.y,'#00fff2',20);
+    game.hitStop=Math.max(game.hitStop||0,0.05);
+    const ang=p.shieldAngle+(p.shieldOrbits.length/(p.shield+1||1))*Math.PI*2;
+    const bx=p.x+Math.cos(ang)*46, by=p.y+Math.sin(ang)*46;
+    spawnParticles(bx,by,'#ffffff',10);
+    spawnParticles(bx,by,'#00F0FF',22);
     screenShake(6);
     return;
   }
@@ -107,10 +111,10 @@ function damagePlayer(amount){
   /* シールド獲得条件: プレイ中に自身のHPが初めて30%以下になった瞬間、能力を解放済みなら発動しシールドを付与。
       このゲーム中のみ永続（deathでリセット）。 */
   if(!p.shieldUnlockedThisRun && p.build.shieldMaxBonus!==undefined && p.hp/p.maxHp<=0.3){
-    if((p.build.shieldMaxBonus||0)>0 || p.build.shieldAutoRegen){
+    if((p.build.shieldMaxBonus||0)>=0 && (isOwned(findNode('vt_armor')))){
       p.shieldUnlockedThisRun=true;
       p.shield=3+(p.build.shieldMaxBonus||0);
-      spawnParticles(p.x,p.y,'#00fff2',30);
+      spawnParticles(p.x,p.y,'#00F0FF',30);
       screenShake(10);
     }
   }
@@ -394,6 +398,7 @@ function render(){
   }
   drawMothership();
   drawPlayer();
+  drawOrbitalShields();
 
   for(const t of game.floatingTexts){
     const a=Math.max(0,t.life/t.maxLife);
