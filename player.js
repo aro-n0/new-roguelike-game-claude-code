@@ -1,4 +1,4 @@
-/* player.js（全文更新：バット既存演出完全維持＋マルチ武器配置＋Orbital Shield＋独立ダメージ計算） */
+/* player.js（全文更新：バット既存演出完全維持＋マルチ武器配置＋Orbital Shield＋独立ダメージ計算＋drawMothership追加） */
 function makePlayer(){
   const {base,build}=computePlayerStats();
   return {x:0,y:0,r:20,hp:base.maxHp,maxHp:base.maxHp,base,build,
@@ -7,6 +7,7 @@ function makePlayer(){
     shield:0,shieldUnlockedThisRun:false,shieldRegenTimer:60,regenTickTimer:1,
     shieldAngle:0,shieldOrbits:[]};
 }
+
 function nearestEnemyTo(x,y){
   let best=null,bd=Infinity;
   game.enemies.forEach(e=>{ const d=dist(e.x,e.y,x,y); if(d<bd){bd=d;best=e;} });
@@ -16,6 +17,7 @@ function nearestEnemyTo(x,y){
   }
   return best;
 }
+
 function allTargets(){
   let list=[...game.enemies];
   if(game.boss){
@@ -25,12 +27,14 @@ function allTargets(){
   }
   return list.filter(t=>!t.dead);
 }
+
 function tryApplyStatus(e){
   const p=game.player; const chance=p.build.statusChance;
   if(chance<=0 || Math.random()>=chance) return;
   if(p.build.poisonDmg>0){ e.dots=e.dots||[]; e.dots.push({color:'#39ff88',dmg:p.build.poisonDmg*p.build.statusDmgMult,interval:0.5,tickTimer:0.5,remaining:p.build.poisonDuration||3}); }
   if(p.build.frostSlow>0){ e.slowFactor=Math.max(0.15,1-p.build.frostSlow); e.slowTimer=2; }
 }
+
 const easeOutBack=t=>{ const c1=1.70158,c3=c1+1; const tt=Math.min(1,Math.max(0,t)); return 1+c3*Math.pow(tt-1,3)+c1*Math.pow(tt-1,2); };
 
 function updatePlayer(dt){
@@ -270,6 +274,7 @@ function drawCyberBat(p,batAngle,alpha,isTrail){
   }
   ctx.restore();
 }
+
 function drawHoloBow(p){
   ctx.save();
   ctx.translate(p.x,p.y);
@@ -281,6 +286,7 @@ function drawHoloBow(p){
   ctx.beginPath(); ctx.moveTo(26,-15); ctx.lineTo(26,15); ctx.stroke();
   ctx.restore();
 }
+
 function drawGunbit(p,offAngle){
   const gx=p.x+Math.cos(p.swingAngle+offAngle)*30, gy=p.y+Math.sin(p.swingAngle+offAngle)*30;
   ctx.save();
@@ -290,6 +296,7 @@ function drawGunbit(p,offAngle){
   roundRectPath(ctx,-8,-5,16,10,3); ctx.fill(); ctx.stroke();
   ctx.restore();
 }
+
 function drawNeonKnuckles(p){
   [-1,1].forEach(side=>{
     const kx=p.x+Math.cos(p.swingAngle+side*1.2)*24, ky=p.y+Math.sin(p.swingAngle+side*1.2)*24;
@@ -297,6 +304,19 @@ function drawNeonKnuckles(p){
     ctx.fillStyle='#ff2b4d'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); ctx.restore();
   });
 }
+
+function drawMothership(){
+  const p=game.player;
+  if(!p || !p.build || !p.build.legendDrone || (p.build.droneCount||0)<=0) return;
+  ctx.save();
+  ctx.translate(p.x,p.y-90);
+  const overclock = game.mothership && game.mothership.overclockActive>0;
+  ctx.shadowColor='#00fff2'; ctx.shadowBlur= overclock?30:16;
+  ctx.fillStyle='#0a1830'; ctx.strokeStyle= overclock?'#ffbe0b':'#00fff2'; ctx.lineWidth=3;
+  roundRectPath(ctx,-30,-14,60,28,10); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
 function drawPlayer(){
   const p=game.player;
   ctx.save();
@@ -337,11 +357,13 @@ function drawPlayer(){
     roundRectPath(ctx,dr.x-7,dr.y-7,14,14,4); ctx.fill(); ctx.stroke(); ctx.restore();
   });
 }
+
 function drawHexPath(cx,cy,r){
   ctx.beginPath();
   for(let i=0;i<6;i++){ const a=i*Math.PI/3; const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
   ctx.closePath();
 }
+
 function drawOrbitalShields(){
   const p=game.player;
   if(!p.shieldOrbits || p.shieldOrbits.length===0) return;
