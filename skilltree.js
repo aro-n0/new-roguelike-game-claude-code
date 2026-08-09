@@ -1,4 +1,4 @@
-/* skilltree.js（全文更新：分岐数上限3、ゲート/派生/強化/Capstone/Legend/Ultimateテンプレート化、2段階タップ選択パネル、クリ倍率ノード追加、Lv50コスト調整） */
+/* skilltree.js（全文更新：差分統合版） */
 const GATE_THRESHOLD=12;
 function costAt(node,lvl){ return Math.round(node.baseCost*Math.pow(node.growth,lvl)); }
 function mult(l,g){ return Math.pow(g,l); }
@@ -236,24 +236,60 @@ const gunnerBranch=buildGateTemplate('t_knockback',t_knockback_pos,-90,{
   ultimate:{id:'gn_ultimate',name:'弾薬無限機構',icon:'☄',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.pistolDmg=(b.pistolDmg||0)+8;b.sniperDmg=(b.sniperDmg||0)+16;},line2:'すべての銃器威力が最大化される',line3:l=>'威力+8〜16'},
 });
 
-const vitalityBranch=buildGateTemplate('t_knockback',t_knockback_pos,-40,{
-  gate:{id:'vt_gate',name:'生命体適性',icon:'🛡',maxLv:1,baseCost:650},
-  derivs:[
-    {node:{id:'vt_armor',name:'装甲強化習得',icon:'🛡',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.vitalityUnlocked=true;b.vitHp+=40;b.dmgReduction+=0.05;},line2:'肉体を強化し耐久力を高める',line3:l=>'最大HPと被ダメージ軽減を習得'},
-     upgrades:[
-       upNode('vt_up_hp','強化外殻','🛡',6,'token','最大HPが増加',l=>`最大HP+${25*l}`,(b,l)=>{b.vitHp+=25*l;}),
-       upNode('vt_up_reduce','装甲硬化','🛡',6,'star','被ダメージがさらに軽減',l=>`軽減+${Math.round(2*l)}%`,(b,l)=>{b.dmgReduction+=0.02*l;}),
-     ]},
-    {node:{id:'vt_regen',name:'自己修復習得',icon:'✚',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.regen+=0.4;b.shieldEnabled=true;},line2:'時間経過でHPが回復する',line3:l=>'HP30%以下で緊急シールドも発動'},
-     upgrades:[
-       upNode('vt_up_regen','自己修復ナノ','✚',6,'token','HP自動回復が上昇',l=>`回復+${(0.15*l).toFixed(2)}/秒`,(b,l)=>{b.regen+=0.15*l;}),
-       upNode('vt_up_shield','緊急衝撃波短縮','⊙',5,'star','シールドの再使用間隔が短縮',l=>`CD-${3*l}秒`,(b,l)=>{b.shieldCdReduce+=3*l;}),
-     ]},
-  ],
-  capstone:{id:'vt_capstone',name:'不屈の意志',icon:'✝',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.dmgReductionMult*=1.5;},line2:'被ダメージ軽減が大幅上昇',line3:l=>'軽減倍率x1.5'},
-  legend:{id:'vt_legend',name:'ライフドレイン（吸血）',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendVitality=true;},line2:'自身のHPを消費し周囲から吸血',line3:l=>'大ダメージと引き換えに大幅回復'},
-  ultimate:{id:'vt_ultimate',name:'不死身の肉体',icon:'✝',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.vitHp+=80;b.dmgReductionMult*=1.3;},line2:'HPと軽減率が最大まで強化される',line3:l=>'最大HP+80 倍率x1.3'},
-});
+/* buildFullBranch を使わず、生命体系統は個別の派生ツリーとして再定義（他ブランチのbuildGateTemplateはそのまま流用可） */
+const vitalityBranch=(function(){
+  const gateP=organicPlace(t_knockback_pos,-40,180,230,tierRadius('gate'));
+  const gate={id:'vt_gate',costType:'token',scope:'slot',parent:'t_knockback',tier:'gate',isGate:true,
+    name:'生命体適性',icon:'🛡',maxLv:1,baseCost:220,growth:1,x:gateP.x,y:gateP.y,
+    apply:()=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'};
+
+  const armorP=organicPlace(gateP,-24,150,190,tierRadius('deriv'));
+  const armorDeriv={id:'vt_armor',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
+    name:'装甲強化習得',icon:'🛡',maxLv:1,baseCost:2,growth:1,x:armorP.x,y:armorP.y,
+    apply:(b,l)=>{b.vitalityUnlocked=true;b.vitHp+=40;b.dmgReduction+=0.05;},line2:'肉体を強化し耐久力を高める',line3:l=>'最大HPと被ダメージ軽減を習得'};
+
+  const regenP=organicPlace(gateP,24,150,190,tierRadius('deriv'));
+  const regenDeriv={id:'vt_regenroot',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
+    name:'自己修復習得',icon:'✚',maxLv:1,baseCost:2,growth:1,x:regenP.x,y:regenP.y,
+    apply:(b,l)=>{b.vitalityUnlocked=true;b.regenEnabled=true;b.regen+=6;},line2:'HPが最大値未満のとき自動回復する',line3:l=>'1秒毎にHPを回復'};
+
+  /* 装甲強化 → 最大シールド数増加(高額トークン) → シールド自動回復(スター1) */
+  const shieldCountP=organicPlace(armorP,-18,150,190,tierRadius('upgrade'));
+  const shieldCountNode={id:'vt_shieldcount',costType:'token',scope:'slot',parent:'vt_armor',tier:'upgrade',
+    name:'最大シールド数増加',icon:'⊙',maxLv:6,baseCost:900,growth:2.2,x:shieldCountP.x,y:shieldCountP.y,
+    apply:(b,l)=>{b.shieldMaxBonus=(b.shieldMaxBonus||0)+l;},line2:'展開できるシールドの上限が増加',line3:l=>`シールド上限+${l}`};
+
+  const shieldRegenP=organicPlace(shieldCountP,-18,120,150,tierRadius('upgrade'));
+  const shieldRegenNode={id:'vt_shieldregen',costType:'star',scope:'slot',parent:'vt_shieldcount',tier:'upgrade',
+    name:'シールド自動回復',icon:'⊙',maxLv:1,baseCost:1,growth:1,x:shieldRegenP.x,y:shieldRegenP.y,
+    apply:(b,l)=>{b.shieldAutoRegen=true;},line2:'時間経過でシールドが自動復元',line3:l=>'60秒毎にシールドを1つ回復'};
+
+  /* 自己修復習得 → 自己修復ナノ(高額トークン) */
+  const nanoP=organicPlace(regenP,18,150,190,tierRadius('upgrade'));
+  const nanoNode={id:'vt_regennano',costType:'token',scope:'slot',parent:'vt_regenroot',tier:'upgrade',
+    name:'自己修復ナノ',icon:'✚',maxLv:8,baseCost:800,growth:1.9,x:nanoP.x,y:nanoP.y,
+    apply:(b,l)=>{b.regen+=4*l;},line2:'HP自動回復量が上昇',line3:l=>`HP自動回復+${4*l}/秒`};
+
+  const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'),12);
+  const capstone={id:'vt_capstone',costType:'star',scope:'slot',parent:'vt_armor',tier:'capstone',
+    name:'不屈の意志',icon:'✝',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
+    derivReq:{ids:['vt_armor','vt_regenroot'],needCount:2},
+    apply:(b,l)=>{b.dmgReductionMult*=1.5;},line2:'被ダメージ軽減が大幅上昇',line3:l=>'軽減倍率x1.5'};
+
+  const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
+  const legend={id:'vt_legend',costType:'star',scope:'slot',parent:'vt_capstone',tier:'legend',
+    name:'ライフドレイン（吸血）',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
+    req:{id:'vt_capstone',lvl:1},
+    apply:(b,l)=>{b.legendVitality=true;},line2:'自身のHPを消費し周囲から吸血',line3:l=>'大ダメージと引き換えに大幅回復'};
+
+  const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
+  const ultimate={id:'vt_ultimate',costType:'token',scope:'slot',parent:'vt_capstone',tier:'ultimate',
+    name:'不死身の肉体',icon:'✝',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
+    req:{id:'vt_capstone',lvl:1},
+    apply:(b,l)=>{b.vitHp+=80;b.dmgReductionMult*=1.3;},line2:'HPと軽減率が最大まで強化される',line3:l=>'最大HP+80 倍率x1.3'};
+
+  return [gate,armorDeriv,regenDeriv,shieldCountNode,shieldRegenNode,nanoNode,capstone,legend,ultimate];
+})();
 
 const BUILD_NODES=[...mageBranch,...droneBranch,...chemicalBranch,...boxerBranch,...bowBranch,...gunnerBranch,...vitalityBranch];
 const ALL_NODES=[...TOKEN_NODES,...BUILD_NODES];
@@ -338,14 +374,14 @@ function respecActiveSlot(){
   if(window.onCurrencyChange) window.onCurrencyChange();
 }
 
-/* ---- 初期ステータス: crit 0%, knockback 1 ---- */
+/* ---- computePlayerStats のシールド/回復系初期値・vitHp加算を維持 ---- */
 function computePlayerStats(){
   const base={maxHp:100,damage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,tokenMul:1};
   const build={statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
     bowUnlocked:false,arrowCount:1,arrowDmg:0,bowDmgMult:1,bowAtkSpd:0,arrowPierce:0,
     boxerMode:false,boxerDmg:0,boxerCombo:1,boxerDmgMult:1,boxerCritBonus:0,
     mageUnlocked:false,chainCount:0,mageDmg:0,mageDmgMult:1,fireballRadius:0,fireballDmg:0,mageAtkSpd:0,
-    vitalityUnlocked:false,vitHp:0,dmgReduction:0,dmgReductionMult:1,shieldEnabled:false,shieldCdReduce:0,
+    vitalityUnlocked:false,vitHp:0,dmgReduction:0,dmgReductionMult:1,shieldEnabled:false,shieldCdReduce:0,regenEnabled:false,shieldMaxBonus:0,shieldAutoRegen:false,
     droneCount:0,droneDmg:0,droneDmgMult:1,droneCdReduce:0,droneRange:0,
     gunnerUnlocked:false,pistolDmg:0,pistolSpd:0,sniperDmg:0,sniperPierce:0,gunnerDmgMult:1,
     legendMage:false,legendDrone:false,legendChem:false,legendBoxer:false,legendBow:false,legendGunner:false,legendVitality:false};
@@ -354,6 +390,22 @@ function computePlayerStats(){
   BUILD_NODES.forEach(n=>{ const l=(slot.build&&slot.build[n.id])||0; if(l>0) n.apply(build,l,base); });
   base.maxHp+=build.vitHp;
   return {base,build};
+}
+
+/* ---- ノード状態4色判定（描画色決定ロジック） ---- */
+const NODE_COLOR_MAP={ locked:'#1a2035', lockedavail:'#8a5a00', buyable:'#f4ff00', active:'#00fff2', maxed:'#ff00e5' };
+function resolveNodeColor(n,st,lvl){
+  if(st==='fogged') return NODE_COLOR_MAP.locked;
+  if(st==='maxed') return NODE_COLOR_MAP.maxed;
+  if(lvl>0) return NODE_COLOR_MAP.active;
+  if(st==='unlockable') return canAfford(n)? NODE_COLOR_MAP.buyable : NODE_COLOR_MAP.lockedavail;
+  return NODE_COLOR_MAP.locked;
+}
+
+/* CORE ノード: クリック判定関数 */
+function hitCore(sx,sy){
+  const corePos=SkillTree._worldToScreen ? SkillTree._worldToScreen(0,0) : null;
+  return corePos && Math.hypot(sx-corePos.x, sy-corePos.y) <= 34*SkillTree._scale();
 }
 
 /* ---- Canvas renderer: pan/zoom(マウス+タッチ) + 2段階タップ選択方式 + パネル連動 ---- */
@@ -431,6 +483,10 @@ const SkillTree=(function(){
   /* 2段階タップ: 1回目=選択+パネル表示, 同ノード2回目=強化実行, 背景タップ=選択解除 */
   function handleTap(sx,sy){
     if(dragging && dragged) return;
+    if(hitCore(sx,sy)){
+      if(window.openCoreModal) window.openCoreModal();
+      return;
+    }
     const n=hitNode(sx,sy);
     if(!n){ selectedId=null; closePanel(); return; }
     const st=nodeState(n);
@@ -509,13 +565,10 @@ const SkillTree=(function(){
       const p=nodeScreenPos(n); const r=nodeRadius(n);
       const lvl=getLevel(n);
       ctx.save();
-      let color = n.costType==='token'?'#f4ff00':'#d1c4ff';
-      if(n.tier==='gate') color='#ff2b9c';
-      if(n.tier==='legend') color='#ff00e5';
-      if(lvl>0) color = n.tier==='legend'?'#ff2b4d':(n.tier==='gate'?'#ff2b9c':(n.costType==='token'?'#39ff88':'#ff00e5'));
-      if(st==='fogged') color='#3a4560';
-      else if(st==='unlockable' && !canAfford(n)) color='#5a6480';
+      
+      let color = resolveNodeColor(n,st,lvl);
       if(n.id===selectedId) color='#fff';
+
       ctx.shadowColor=color; ctx.shadowBlur=(st==='unlockable'||st==='maxed'||n.id===selectedId?16:0)*view.scale;
       ctx.fillStyle='rgba(10,12,24,0.94)'; ctx.strokeStyle=color; ctx.lineWidth=(n.tier==='legend'||n.tier==='gate')?3.5:2.5;
       ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
@@ -541,5 +594,9 @@ const SkillTree=(function(){
       if(n && nodeState(n)!=='hidden') openPanel(n); else { selectedId=null; closePanel(); }
     }
   }
-  return {render,onWheel,onDown,onMove,onUp,onTouchStart,onTouchMove,onTouchEnd,reset,triggerUnlockFx,handleTap};
+  return {
+    render,onWheel,onDown,onMove,onUp,onTouchStart,onTouchMove,onTouchEnd,reset,triggerUnlockFx,handleTap,
+    _worldToScreen: worldToScreen,
+    _scale: ()=>view.scale
+  };
 })();
