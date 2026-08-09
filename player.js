@@ -127,7 +127,21 @@ function tryApplyStatus(e){
 const easeOutBack=t=>{ const c1=1.70158,c3=c1+1; const tt=Math.min(1,Math.max(0,t)); return 1+c3*Math.pow(tt-1,3)+c1*Math.pow(tt-1,2); };
 
 function updatePlayer(dt){
+  /* Orbital Shield 更新処理 */
   const p=game.player;
+  p.shieldAngle=(p.shieldAngle||0)+dt*0.9;
+  if(!p.shieldOrbits) p.shieldOrbits=[];
+  const targetCount = p.shieldUnlockedThisRun ? (p.shield||0) : 0;
+  while(p.shieldOrbits.length<targetCount){ p.shieldOrbits.push({scale:0,targetSlot:p.shieldOrbits.length}); AudioEngine.SE.shield(); }
+  while(p.shieldOrbits.length>targetCount){
+    const removed=p.shieldOrbits.pop();
+    const idx=p.shieldOrbits.length;
+    const ang=p.shieldAngle+(idx/(targetCount+1))*Math.PI*2;
+    spawnParticles(p.x+Math.cos(ang)*44,p.y+Math.sin(ang)*44,'#00F0FF',14);
+  }
+  p.shieldOrbits.forEach((o,i)=>{ o.scale=Math.min(1,(o.scale||0)+dt*4); });
+
+  /* 既存の updatePlayer 本体処理 */
   if(p.invuln>0) p.invuln-=dt;
   if(p.shieldFlash>0) p.shieldFlash-=dt;
 
@@ -293,6 +307,32 @@ function drawCyberBat(p,batAngle,alpha,isTrail){
   ctx.restore();
 }
 
+function drawOrbitalShields(){
+  const p=game.player;
+  if(!p.shieldOrbits || p.shieldOrbits.length===0) return;
+  const n=p.shieldOrbits.length;
+  const radius=46;
+  p.shieldOrbits.forEach((o,i)=>{
+    const ang=p.shieldAngle+(i/n)*Math.PI*2;
+    const sx=p.x+Math.cos(ang)*radius, sy=p.y+Math.sin(ang)*radius;
+    const pulse=0.85+0.15*Math.sin(performance.now()/300+i);
+    ctx.save();
+    ctx.translate(sx,sy); ctx.rotate(ang);
+    ctx.scale((o.scale||1)*pulse,(o.scale||1)*pulse);
+    ctx.shadowColor='#00F0FF'; ctx.shadowBlur=14;
+    ctx.fillStyle='rgba(0,240,255,0.25)'; ctx.strokeStyle='#00F0FF'; ctx.lineWidth=2;
+    drawHexPath(0,0,9);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  });
+}
+
+function drawHexPath(cx,cy,r){
+  ctx.beginPath();
+  for(let i=0;i<6;i++){ const a=i*Math.PI/3; const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+  ctx.closePath();
+}
+
 function drawPlayer(){
   const p=game.player;
   ctx.save();
@@ -328,4 +368,5 @@ function drawPlayer(){
   });
 
   drawMothership(); // ドローン描画の後にマザーシップを描画
+  drawOrbitalShields(); // プレイヤー周囲を周回するヘキサゴンシールド描画
 }
