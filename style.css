@@ -168,3 +168,7 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 /* ---- HP自動回復・シールド演出 ---- */
 .regen-pop{ position:absolute; font-size:14px; font-weight:bold; color:#39ff88; text-shadow:0 0 8px #39ff88; pointer-events:none; }
 .shield-icon{ display:inline-flex; align-items:center; gap:2px; }
+
+/* CORE強調色 */
+.core-highlight-yellow span:last-child{ color:#FFE600 !important; text-shadow:0 0 8px #FFE600; }
+.core-highlight-cyan span:last-child{ color:#00F0FF !important; text-shadow:0 0 8px #00F0FF; }
