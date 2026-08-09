@@ -74,6 +74,14 @@
     </div>
     <div id="legendButtons"></div>
   </div>
+
+  <button id="pauseBtn">⏸</button>
+  <div id="pauseScreen" class="hidden">
+    <div class="glitch-title">PAUSED</div>
+    <button class="neon-btn" id="btnResume">再開</button>
+    <button class="neon-btn yellow" id="btnPauseToTitle">タイトルへ戻る</button>
+  </div>
+
   <div class="wave-banner" id="waveBanner"></div>
   <div class="star-banner" id="starBanner"></div>
 
@@ -102,12 +110,29 @@
   </div>
 
   <div id="skilltreeOverlay" class="hidden">
+    <div class="st-currency-bar">
+      <div class="curr-pill">⬡ <span id="stTokens">0</span></div>
+      <div class="curr-pill star">⭐ <span id="stStars">0</span></div>
+    </div>
     <div class="st-slotbar" id="stSlotBar"></div>
     <div class="st-actions">
       <button class="neon-btn small yellow" id="btnRespec">振り直し</button>
       <button class="neon-btn small" id="btnTreeExit">終了</button>
     </div>
     <div class="st-hint">ホイールでズーム / ドラッグでパン</div>
+  </div>
+
+  <div id="coreModal" class="hidden">
+    <div class="core-modal-panel">
+      <h3>CORE STATUS</h3>
+      <div class="core-modal-row"><span>最大HP</span><span id="coreMaxHp">0</span></div>
+      <div class="core-modal-row"><span>攻撃力倍率</span><span id="coreDmgMult">1.00x</span></div>
+      <div class="core-modal-row"><span>自動回復量</span><span id="coreRegen">0/秒</span></div>
+      <div class="core-modal-row"><span>最大シールド数</span><span id="coreShieldMax">3</span></div>
+      <div class="core-modal-row"><span>累計獲得トークン</span><span id="coreTotalTokens">0</span></div>
+      <div class="core-modal-row"><span>累計獲得スター</span><span id="coreTotalStars">0</span></div>
+      <button class="neon-btn small" id="btnCoreModalClose">閉じる</button>
+    </div>
   </div>
 
   <div id="skillNodePanel" class="hidden">
