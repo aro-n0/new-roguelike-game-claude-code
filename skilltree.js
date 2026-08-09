@@ -1,4 +1,4 @@
-/* skilltree.js（全文更新：差分統合版） */
+/* skilltree.js（全文統合版） */
 const GATE_THRESHOLD=12;
 function costAt(node,lvl){ return Math.round(node.baseCost*Math.pow(node.growth,lvl)); }
 function mult(l,g){ return Math.pow(g,l); }
@@ -49,7 +49,6 @@ const t_crit={id:'t_crit',costType:'token',scope:'global',name:'クリティカ�
 const t_hp_pos=organicPlace(t_dmg_pos,-90,190,235,tierRadius('gate'));
 const t_hp={id:'t_hp',costType:'token',scope:'global',name:'体力増強',icon:'♥',maxLv:15,baseCost:8,growth:1.45,parent:'t_dmg',
   x:t_hp_pos.x,y:t_hp_pos.y,apply:(b,l)=>{b.maxHp+=12*l;},line2:'最大HPが増加',line3:l=>`最大HP+${12*l}`};
-/* 攻撃力の子は最大3本まで(aspd/crit/hp) */
 
 const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
 const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
@@ -59,7 +58,6 @@ const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
 const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークンドロップ率',icon:'⬡',maxLv:T_DROP_MAXLV,baseCost:T_DROP_BASE,
   growth:tokenCostGrowth(T_DROP_MAXLV,TOKENS_50WAVES_1ROUND,T_DROP_BASE),parent:'t_aspd',
   x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,apply:(b,l)=>{b.tokenMul*=(1+0.05*l);},line2:'獲得するトークンが増加',line3:l=>`トークン獲得量x${(1+0.05*l).toFixed(2)}`};
-/* 攻撃速度の子は最大2本(range/tokendrop) 上限3以内 */
 
 const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'));
 const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',icon:'➤',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
@@ -67,26 +65,22 @@ const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',
 const t_knockback_pos=organicPlace(t_hp_pos,-70,140,185,tierRadius('gate'));
 const t_knockback={id:'t_knockback',costType:'token',scope:'global',name:'ノックバック力',icon:'☄',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
   x:t_knockback_pos.x,y:t_knockback_pos.y,apply:(b,l)=>{b.knockback+=14*l;},line2:'攻撃時に敵を弾き飛ばす',line3:l=>`ノックバック力+${14*l}`};
-/* 体力増強の子は最大2本(speed/knockback) */
 
-/* クリティカル倍率強化ノード（クリティカル率から派生・初期2.0倍→最大3.0倍） */
 const t_critmult_pos=organicPlace(t_crit_pos,-15,130,170,tierRadius('deriv'));
 const T_CRITMULT_MAXLV=10;
 const t_critmult={id:'t_critmult',costType:'token',scope:'global',name:'クリティカル倍率強化',icon:'✹',maxLv:T_CRITMULT_MAXLV,baseCost:14,growth:1.45,parent:'t_crit',
   x:t_critmult_pos.x,y:t_critmult_pos.y,apply:(b,l)=>{b.critMult=2.0+(1.0*l/T_CRITMULT_MAXLV);},
   line2:'クリティカル時の倍率が上昇',line3:l=>`クリティカル倍率 x${(2.0+(1.0*l/T_CRITMULT_MAXLV)).toFixed(2)}`};
-/* クリティカル率の子はcritmultのみ（1本） */
 
 const TOKEN_NODES=[t_dmg,t_aspd,t_crit,t_hp,t_range,t_tokendrop,t_speed,t_knockback,t_critmult];
 function tokenTotalLevels(){ let s=0; TOKEN_NODES.forEach(n=>{ s+=gameData.tokenLevels[n.id]||0; }); return s; }
 
-/* ---- 新テンプレート: ゲート(token) → 派生A/B[/C](star2) → 強化群(各分岐から2本、token or star1) → Capstone(star4、A&B解放で到達可) → Legend(star5) / Ultimate(2周分トークン) ---- */
 function buildGateTemplate(tokenId,tokenPos,angle,cfg){
   const gateP=organicPlace(tokenPos,angle,160,210,tierRadius('gate'));
   const gate=Object.assign({},cfg.gate,{costType:'token',scope:'slot',parent:tokenId,tier:'gate',isGate:true,x:gateP.x,y:gateP.y,
     apply:()=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'});
 
-  const derivDefs=cfg.derivs; // 2 or 3 entries, each {node, upgrades:[..up to2..]}
+  const derivDefs=cfg.derivs;
   const spread = derivDefs.length===3? [-30,0,30] : [-20,20];
   const derivNodes=[]; const upgradeNodes=[];
   derivDefs.forEach((d,i)=>{
@@ -116,8 +110,6 @@ function buildGateTemplate(tokenId,tokenPos,angle,cfg){
   return [gate,...derivNodes,...upgradeNodes,capstone,legend,ultimate];
 }
 
-/* 強化ノードのコスト構成: 例1(2+2+2+4=10)/例2(2+2+2+4=10) の合計10スターに収まるよう、
-   各派生2本のうち1本目はtoken消費、2本目はstar1個固定の段階強化(5〜7段階)とする */
 function upNode(id,name,icon,steps,costType,line2,line3,apply){
   return {id,name,icon,maxLv:steps,baseCost:costType==='star'?1:6,growth:costType==='star'?1:1.4,costType,scope:'slot',apply,line2,line3};
 }
@@ -236,7 +228,6 @@ const gunnerBranch=buildGateTemplate('t_knockback',t_knockback_pos,-90,{
   ultimate:{id:'gn_ultimate',name:'弾薬無限機構',icon:'☄',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.pistolDmg=(b.pistolDmg||0)+8;b.sniperDmg=(b.sniperDmg||0)+16;},line2:'すべての銃器威力が最大化される',line3:l=>'威力+8〜16'},
 });
 
-/* buildFullBranch を使わず、生命体系統は個別の派生ツリーとして再定義（他ブランチのbuildGateTemplateはそのまま流用可） */
 const vitalityBranch=(function(){
   const gateP=organicPlace(t_knockback_pos,-40,180,230,tierRadius('gate'));
   const gate={id:'vt_gate',costType:'token',scope:'slot',parent:'t_knockback',tier:'gate',isGate:true,
@@ -253,7 +244,6 @@ const vitalityBranch=(function(){
     name:'自己修復習得',icon:'✚',maxLv:1,baseCost:2,growth:1,x:regenP.x,y:regenP.y,
     apply:(b,l)=>{b.vitalityUnlocked=true;b.regenEnabled=true;b.regen+=6;},line2:'HPが最大値未満のとき自動回復する',line3:l=>'1秒毎にHPを回復'};
 
-  /* 装甲強化 → 最大シールド数増加(高額トークン) → シールド自動回復(スター1) */
   const shieldCountP=organicPlace(armorP,-18,150,190,tierRadius('upgrade'));
   const shieldCountNode={id:'vt_shieldcount',costType:'token',scope:'slot',parent:'vt_armor',tier:'upgrade',
     name:'最大シールド数増加',icon:'⊙',maxLv:6,baseCost:900,growth:2.2,x:shieldCountP.x,y:shieldCountP.y,
@@ -264,7 +254,6 @@ const vitalityBranch=(function(){
     name:'シールド自動回復',icon:'⊙',maxLv:1,baseCost:1,growth:1,x:shieldRegenP.x,y:shieldRegenP.y,
     apply:(b,l)=>{b.shieldAutoRegen=true;},line2:'時間経過でシールドが自動復元',line3:l=>'60秒毎にシールドを1つ回復'};
 
-  /* 自己修復習得 → 自己修復ナノ(高額トークン) */
   const nanoP=organicPlace(regenP,18,150,190,tierRadius('upgrade'));
   const nanoNode={id:'vt_regennano',costType:'token',scope:'slot',parent:'vt_regenroot',tier:'upgrade',
     name:'自己修復ナノ',icon:'✚',maxLv:8,baseCost:800,growth:1.9,x:nanoP.x,y:nanoP.y,
@@ -374,7 +363,6 @@ function respecActiveSlot(){
   if(window.onCurrencyChange) window.onCurrencyChange();
 }
 
-/* ---- computePlayerStats のシールド/回復系初期値・vitHp加算を維持 ---- */
 function computePlayerStats(){
   const base={maxHp:100,damage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,tokenMul:1};
   const build={statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
@@ -392,7 +380,6 @@ function computePlayerStats(){
   return {base,build};
 }
 
-/* ---- ノード状態4色判定（描画色決定ロジック） ---- */
 const NODE_COLOR_MAP={ locked:'#1a2035', lockedavail:'#8a5a00', buyable:'#f4ff00', active:'#00fff2', maxed:'#ff00e5' };
 function resolveNodeColor(n,st,lvl){
   if(st==='fogged') return NODE_COLOR_MAP.locked;
@@ -402,13 +389,20 @@ function resolveNodeColor(n,st,lvl){
   return NODE_COLOR_MAP.locked;
 }
 
-/* CORE ノード: クリック判定関数 */
-function hitCore(sx,sy){
-  const corePos=SkillTree._worldToScreen ? SkillTree._worldToScreen(0,0) : null;
-  return corePos && Math.hypot(sx-corePos.x, sy-corePos.y) <= 34*SkillTree._scale();
+function openCoreModal(){
+  const modal=document.getElementById('coreModal'); if(!modal) return;
+  const {base,build}=computePlayerStats();
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('coreMaxHp', Math.round(base.maxHp));
+  set('coreDmgMult', ((build.mageDmgMult||1)*(build.boxerDmgMult||1)*(build.bowDmgMult||1)*(build.gunnerDmgMult||1)*(build.droneDmgMult||1)).toFixed(2)+'x');
+  set('coreRegen', ((base.regen||0)+ (build.regen||0)).toFixed(2)+'/秒');
+  set('coreShieldMax', 3+(build.shieldMaxBonus||0));
+  set('coreTotalTokens', gameData.totalTokensEarned||0);
+  set('coreTotalStars', (gameData.totalStarsEarned||0));
+  modal.classList.remove('hidden');
 }
+function closeCoreModal(){ const modal=document.getElementById('coreModal'); if(modal) modal.classList.add('hidden'); }
 
-/* ---- Canvas renderer: pan/zoom(マウス+タッチ) + 2段階タップ選択方式 + パネル連動 ---- */
 const SkillTree=(function(){
   let view={scale:0.5,offsetX:0,offsetY:0};
   let dragging=false,lastX=0,lastY=0,dragged=false;
@@ -479,45 +473,45 @@ const SkillTree=(function(){
     }
     return null;
   }
+  function hitCoreLocal(sx,sy){
+    const corePos=worldToScreen(0,0);
+    return Math.hypot(sx-corePos.x,sy-corePos.y)<=34*view.scale;
+  }
 
-  /* 2段階タップ: 1回目=選択+パネル表示, 同ノード2回目=強化実行, 背景タップ=選択解除 */
   function handleTap(sx,sy){
     if(dragging && dragged) return;
-    if(hitCore(sx,sy)){
-      if(window.openCoreModal) window.openCoreModal();
-      return;
-    }
+    if(hitCoreLocal(sx,sy)){ openCoreModal(); return; }
     const n=hitNode(sx,sy);
     if(!n){ selectedId=null; closePanel(); return; }
     const st=nodeState(n);
     if(st==='hidden') return;
     if(selectedId===n.id){
       if(st==='unlockable'){ buyNode(n); openPanel(n); }
-    } else {
-      selectedId=n.id;
-      openPanel(n);
-    }
+    } else { selectedId=n.id; openPanel(n); }
   }
   function openPanel(n){
-    const panel=document.getElementById('skillNodePanel');
+    const panel=document.getElementById('skillNodePanel'); if(!panel) return;
     const st=nodeState(n);
-    document.getElementById('snpName').textContent = st==='fogged'? '？？？' : n.name;
-    document.getElementById('snpDesc').textContent = st==='fogged'? '' : n.line2;
+    const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+    set('snpName', st==='fogged'?'？？？':n.name);
+    set('snpDesc', st==='fogged'?'':n.line2);
     const lvl=getLevel(n);
-    document.getElementById('snpCurrent').textContent = lvl>0? (typeof n.line3==='function'?n.line3(lvl):n.line3) : 'なし';
+    set('snpCurrent', lvl>0?(typeof n.line3==='function'?n.line3(lvl):n.line3):'なし');
     const nextLvl=Math.min(n.maxLv,lvl+1);
-    document.getElementById('snpNext').textContent = st==='unlockable'? (typeof n.line3==='function'?n.line3(nextLvl):n.line3) : (st==='maxed'?'最大解放済み':'解放条件未達成');
-    const cost=st==='maxed'? 0 : costAt(n,lvl);
-    document.getElementById('snpCost').textContent = st==='maxed'? 'MAX' : `${cost} ${n.costType==='token'?'⬡ トークン':'⭐ スター'}`;
+    set('snpNext', st==='unlockable'?(typeof n.line3==='function'?n.line3(nextLvl):n.line3):(st==='maxed'?'最大解放済み':'解放条件未達成'));
+    const cost=st==='maxed'?0:costAt(n,lvl);
+    set('snpCost', st==='maxed'?'MAX':`${cost} ${n.costType==='token'?'⬡ トークン':'⭐ スター'}`);
     const btn=document.getElementById('snpConfirm');
-    btn.style.display = st==='unlockable'? 'block':'none';
-    btn.onclick=()=>{ if(nodeState(n)==='unlockable'){ buyNode(n); openPanel(n); } };
+    if(btn){
+      btn.style.display = st==='unlockable'? 'block':'none';
+      btn.onclick=()=>{ if(nodeState(n)==='unlockable'){ buyNode(n); openPanel(n); } };
+    }
     const scr=nodeScreenPos(n);
     panel.style.left=Math.min(W-300,scr.x+30)+'px';
     panel.style.top=Math.min(H-160,Math.max(10,scr.y-60))+'px';
     panel.classList.remove('hidden');
   }
-  function closePanel(){ document.getElementById('skillNodePanel').classList.add('hidden'); }
+  function closePanel(){ const el=document.getElementById('skillNodePanel'); if(el) el.classList.add('hidden'); }
   function hoverCheck(sx,sy){
     const n=hitNode(sx,sy);
     const id=n?n.id:null;
@@ -526,7 +520,7 @@ const SkillTree=(function(){
   function triggerUnlockFx(id){ unlockFx[id]=0.7; }
   function updateAnim(dt){
     ALL_NODES.forEach(n=>{
-      const target = (n.id===hoverId||n.id===selectedId)?1.22:1;
+      const target=(n.id===hoverId||n.id===selectedId)?1.22:1;
       const cur=animScale[n.id]||1;
       animScale[n.id]=cur+(target-cur)*Math.min(1,dt*14);
     });
@@ -564,12 +558,12 @@ const SkillTree=(function(){
       const st=nodeState(n); if(st==='hidden') return;
       const p=nodeScreenPos(n); const r=nodeRadius(n);
       const lvl=getLevel(n);
-      ctx.save();
-      
-      let color = resolveNodeColor(n,st,lvl);
+      let color=resolveNodeColor(n,st,lvl);
       if(n.id===selectedId) color='#fff';
-
-      ctx.shadowColor=color; ctx.shadowBlur=(st==='unlockable'||st==='maxed'||n.id===selectedId?16:0)*view.scale;
+      const pulsing = st==='unlockable' && lvl===0 && canAfford(n);
+      const pulseScale = pulsing ? (0.85+0.15*Math.sin(performance.now()/220)) : 1;
+      ctx.save();
+      ctx.shadowColor=color; ctx.shadowBlur=(st==='unlockable'||st==='maxed'||n.id===selectedId?(pulsing?26:16):0)*view.scale*pulseScale;
       ctx.fillStyle='rgba(10,12,24,0.94)'; ctx.strokeStyle=color; ctx.lineWidth=(n.tier==='legend'||n.tier==='gate')?3.5:2.5;
       ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
       ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -593,10 +587,9 @@ const SkillTree=(function(){
       const n=findNode(selectedId);
       if(n && nodeState(n)!=='hidden') openPanel(n); else { selectedId=null; closePanel(); }
     }
+    const cb=document.getElementById('stTokens'); if(cb) cb.textContent=gameData.tokens;
+    const csb=document.getElementById('stStars'); if(csb) csb.textContent=gameData.skillStars;
   }
-  return {
-    render,onWheel,onDown,onMove,onUp,onTouchStart,onTouchMove,onTouchEnd,reset,triggerUnlockFx,handleTap,
-    _worldToScreen: worldToScreen,
-    _scale: ()=>view.scale
-  };
+  return {render,onWheel,onDown,onMove,onUp,onTouchStart,onTouchMove,onTouchEnd,reset,triggerUnlockFx,handleTap,
+    _worldToScreen:worldToScreen,_scale:()=>view.scale};
 })();
