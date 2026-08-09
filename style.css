@@ -65,10 +65,13 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .save-slot-actions{ display:flex; gap:6px; }
 .save-slot-actions button{ font-size:10px; padding:5px 10px; }
 
-.global-currency-bar{position:fixed;top:12px;right:14px;z-index:90;display:flex;gap:8px;pointer-events:none;}
-.curr-pill{display:flex;align-items:center;gap:5px;background:linear-gradient(135deg,rgba(20,8,30,0.95),rgba(5,5,12,0.95));border:1.5px solid var(--neon-yellow);border-radius:16px;padding:4px 10px;font-size:12px;font-weight:bold;color:var(--neon-yellow);text-shadow:0 0 6px var(--neon-yellow);box-shadow:0 0 12px rgba(244,255,0,0.5);}
-.curr-pill.star{border-color:#d1c4ff;color:#efe9ff;text-shadow:0 0 6px #d1c4ff;box-shadow:0 0 12px rgba(209,196,255,0.55);}
-.star-icon-svg{width:13px;height:17px;filter:drop-shadow(0 0 3px #d1c4ff);}
+/* ---- 通貨バー（グローバル / スキルツリー統一） ---- */
+.global-currency-bar, .st-currency-bar{ position:fixed; top:12px; right:14px; z-index:90; display:flex; gap:8px; pointer-events:none; }
+.st-currency-bar{ position:absolute; top:14px; right:16px; z-index:70; }
+
+.curr-pill{ display:flex; align-items:center; gap:5px; background:linear-gradient(135deg,rgba(20,8,30,0.95),rgba(5,5,12,0.95)); border:1.5px solid var(--neon-yellow); border-radius:16px; padding:4px 10px; font-size:12px; font-weight:bold; color:var(--neon-yellow); text-shadow:0 0 6px var(--neon-yellow); box-shadow:0 0 12px rgba(244,255,0,0.5); }
+.curr-pill.star{ border-color:#00F0FF; color:#c4faff; text-shadow:0 0 6px #00F0FF; box-shadow:0 0 12px rgba(0,240,255,0.55); }
+.star-icon-svg{ width:13px; height:17px; filter:drop-shadow(0 0 3px #00F0FF); }
 
 #hud{position:absolute;top:0;left:0;right:0;z-index:22;pointer-events:none;padding:14px 18px;}
 .hud-row{display:flex;justify-content:space-between;align-items:flex-start;}
@@ -106,9 +109,6 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .st-actions .neon-btn{background:rgba(8,10,20,0.55);backdrop-filter:blur(2px);}
 .st-hint{position:absolute;bottom:16px;right:16px;font-size:10px;color:#5a6a90;pointer-events:none;}
 
-/* ---- スキルツリー内 通貨表示 ---- */
-.st-currency-bar{ position:absolute; top:14px; right:16px; z-index:70; display:flex; gap:8px; pointer-events:none; }
-
 @keyframes nodePulse{ 0%,100%{ filter:drop-shadow(0 0 6px var(--node-buyable)); } 50%{ filter:drop-shadow(0 0 18px var(--node-buyable)); } }
 
 /* 2段階タップ選択パネル */
@@ -145,7 +145,7 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .legend-cd{ font-size:10px; color:var(--neon-yellow); }
 
 /* 通貨アニメーション */
-.global-currency-bar.pop{ animation:currencyPop 0.35s ease; }
+.global-currency-bar.pop, .st-currency-bar.pop{ animation:currencyPop 0.35s ease; }
 @keyframes currencyPop{
   0%{ transform:scale(1); }
   35%{ transform:scale(1.18); }
@@ -160,6 +160,10 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .core-modal-row{ display:flex; justify-content:space-between; font-size:12px; color:#cfeff5; border-bottom:1px dashed rgba(255,255,255,0.2); padding:3px 0; }
 .core-modal-row span:last-child{ color:var(--neon-yellow); }
 
+/* CORE強調色 */
+.core-highlight-yellow span:last-child{ color:#FFE600 !important; text-shadow:0 0 8px #FFE600; }
+.core-highlight-cyan span:last-child{ color:#00F0FF !important; text-shadow:0 0 8px #00F0FF; }
+
 /* ---- ポーズ ---- */
 #pauseBtn{ position:absolute; top:14px; left:14px; z-index:24; pointer-events:auto; background:var(--panel-bg); border:1.5px solid var(--neon-cyan); color:var(--neon-cyan); border-radius:8px; padding:6px 12px; font-family:inherit; font-size:14px; cursor:pointer; }
 #pauseScreen{ position:fixed; inset:0; z-index:105; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; background:rgba(2,2,6,0.9); }
@@ -168,7 +172,3 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 /* ---- HP自動回復・シールド演出 ---- */
 .regen-pop{ position:absolute; font-size:14px; font-weight:bold; color:#39ff88; text-shadow:0 0 8px #39ff88; pointer-events:none; }
 .shield-icon{ display:inline-flex; align-items:center; gap:2px; }
-
-/* CORE強調色 */
-.core-highlight-yellow span:last-child{ color:#FFE600 !important; text-shadow:0 0 8px #FFE600; }
-.core-highlight-cyan span:last-child{ color:#00F0FF !important; text-shadow:0 0 8px #00F0FF; }
