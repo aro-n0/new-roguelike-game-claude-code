@@ -1,52 +1,296 @@
-/* skilltree.js（全文更新：CORE表示12項目・攻撃力表記変更、装甲強化テキスト修正、6色ノードカラー＆遠近ロック判定、弓術ビルド再構築、CORE hover表示） */
+/* skilltree.js（全文差し替え：armorDeriv未定義参照エラーの修正、宣言順序の整理、SkillTree/computePlayerStatsの安全なグローバル露出） */
+"use strict";
 
-/* ---- Wave1〜50想定累計トークン（Ultimateコスト計算用、既存値を流用） ---- */
+/* =========================================================
+   0. 基礎ヘルパー
+   ========================================================= */
+function costAt(node,lvl){ return Math.round(node.baseCost*Math.pow(node.growth,lvl)); }
+function mult(l,g){ return Math.pow(g,l); }
+function growthFor(maxLv,startCost,endCost){ return maxLv>1 ? Math.pow(endCost/startCost,1/(maxLv-1)) : 1; }
+
 function sumWaveTokens(waves){ let s=0; for(let w=1;w<=waves;w++) s+=w*15; return s; }
 const TOKENS_50WAVES_1ROUND=sumWaveTokens(50);
 const TOKENS_50WAVES_2ROUNDS=TOKENS_50WAVES_1ROUND*2;
 
-/* ---- 装甲強化ノード テキスト修正 ---- */
-/* vitalityBranch内 armorDeriv の定義を以下に置き換え */
-const armorDerivFix={
-  line2:'ダメージを無効化するシールドを持つ',
-  line3:l=> l>0 ? 'HP30%以下の時に発動するシールドを取得' : 'HP30%以下の時に発動するシールドを取得'
-};
-/* 既存の armorDeriv オブジェクト生成部分の line2/line3 プロパティを armorDerivFix の値で上書き */
-armorDeriv.line2=armorDerivFix.line2;
-armorDeriv.line3=armorDerivFix.line3;
-armorDeriv.name='装甲強化';
+const GATE_THRESHOLD=12;
 
-/* ---- 弓術ビルド 再構築 ---- */
-function bowCostGrowth(maxLv,startCost,endCost){ return Math.pow(endCost/startCost, 1/(maxLv-1)); }
+const tierRadiusMap={gate:24,deriv:20,upgrade:16,capstone:26,legend:32,ultimate:30};
+function tierRadius(tier){ return tierRadiusMap[tier]||20; }
 
+const placedNodes=[{x:0,y:0,r:34}];
+function organicPlace(parent,baseAngleDeg,minDist,maxDist,radius,jitterDeg){
+  jitterDeg = jitterDeg===undefined?25:jitterDeg;
+  let best=null;
+  for(let attempt=0;attempt<30;attempt++){
+    const jitter=(Math.random()*2-1)*jitterDeg;
+    const angle=(baseAngleDeg+jitter)*Math.PI/180;
+    const dist=minDist+Math.random()*(maxDist-minDist);
+    const x=parent.x+Math.cos(angle)*dist;
+    const y=parent.y+Math.sin(angle)*dist;
+    const ok=!placedNodes.some(p=>Math.hypot(x-p.x,y-p.y)<(radius+p.r+16));
+    if(ok){ best={x,y}; break; }
+    if(!best) best={x,y};
+  }
+  placedNodes.push({x:best.x,y:best.y,r:radius});
+  return best;
+}
+const core={x:0,y:0,id:'core'};
+
+/* =========================================================
+   1. 基礎ステータス（トークン専用ツリー）
+   ========================================================= */
+const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'));
+const T_DMG_MAXLV=50, T_DMG_BASE=20;
+const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:T_DMG_MAXLV,baseCost:T_DMG_BASE,
+  growth:growthFor(T_DMG_MAXLV,T_DMG_BASE,TOKENS_50WAVES_1ROUND),parent:'core',
+  x:t_dmg_pos.x,y:t_dmg_pos.y,apply:(b,l)=>{b.damage+=1.3*l;},line2:'近接ダメージが上昇',line3:l=>`攻撃力+${(1.3*l).toFixed(1)}`};
+
+const t_aspd_pos=organicPlace(t_dmg_pos,-150,140,185,tierRadius('gate'));
+const t_aspd={id:'t_aspd',costType:'token',scope:'global',name:'攻撃速度',icon:'⚡',maxLv:12,baseCost:10,growth:1.5,parent:'t_dmg',
+  x:t_aspd_pos.x,y:t_aspd_pos.y,apply:(b,l)=>{b.atkSpd*=(1+0.03*l);},line2:'攻撃間隔が短縮',line3:l=>`攻撃速度+${Math.round(3*l)}%`};
+
+const t_crit_pos=organicPlace(t_dmg_pos,-30,140,185,tierRadius('gate'));
+const t_crit={id:'t_crit',costType:'token',scope:'global',name:'クリティカル率',icon:'✹',maxLv:12,baseCost:12,growth:1.55,parent:'t_dmg',
+  x:t_crit_pos.x,y:t_crit_pos.y,apply:(b,l)=>{b.crit+=0.02*l;},line2:'会心の一撃が発生しやすくなる',line3:l=>`クリティカル率+${Math.round(2*l)}%`};
+
+const t_hp_pos=organicPlace(t_dmg_pos,-90,190,235,tierRadius('gate'));
+const t_hp={id:'t_hp',costType:'token',scope:'global',name:'体力増強',icon:'♥',maxLv:15,baseCost:8,growth:1.45,parent:'t_dmg',
+  x:t_hp_pos.x,y:t_hp_pos.y,apply:(b,l)=>{b.maxHp+=12*l;},line2:'最大HPが増加',line3:l=>`最大HP+${12*l}`};
+
+const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
+const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
+  x:t_range_pos.x,y:t_range_pos.y,apply:(b,l)=>{b.range*=(1+0.04*l);},line2:'近接攻撃の届く距離が伸びる',line3:l=>`射程+${Math.round(4*l)}%`};
+
+const T_DROP_MAXLV=50, T_DROP_BASE=20;
+const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
+const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークンドロップ率',icon:'⬡',maxLv:T_DROP_MAXLV,baseCost:T_DROP_BASE,
+  growth:growthFor(T_DROP_MAXLV,T_DROP_BASE,TOKENS_50WAVES_1ROUND),parent:'t_aspd',
+  x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,apply:(b,l)=>{b.tokenMul*=(1+0.05*l);},line2:'獲得するトークンが増加',line3:l=>`トークン獲得量x${(1+0.05*l).toFixed(2)}`};
+
+const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'));
+const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',icon:'➤',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
+  x:t_speed_pos.x,y:t_speed_pos.y,apply:(b,l)=>{b.speed*=(1+0.03*l);},line2:'移動が速くなる',line3:l=>`移動速度+${Math.round(3*l)}%`};
+
+const t_knockback_pos=organicPlace(t_hp_pos,-70,140,185,tierRadius('gate'));
+const t_knockback={id:'t_knockback',costType:'token',scope:'global',name:'ノックバック力',icon:'☄',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
+  x:t_knockback_pos.x,y:t_knockback_pos.y,apply:(b,l)=>{b.knockback+=14*l;},line2:'攻撃時に敵を弾き飛ばす',line3:l=>`ノックバック力+${14*l}`};
+
+const t_critmult_pos=organicPlace(t_crit_pos,-15,130,170,tierRadius('deriv'));
+const T_CRITMULT_MAXLV=10;
+const t_critmult={id:'t_critmult',costType:'token',scope:'global',name:'クリティカル倍率強化',icon:'✹',maxLv:T_CRITMULT_MAXLV,baseCost:14,growth:1.45,parent:'t_crit',
+  x:t_critmult_pos.x,y:t_critmult_pos.y,apply:(b,l)=>{b.critMult=2.0+(1.0*l/T_CRITMULT_MAXLV);},
+  line2:'クリティカル時の倍率が上昇',line3:l=>`クリティカル倍率 x${(2.0+(1.0*l/T_CRITMULT_MAXLV)).toFixed(2)}`};
+
+const TOKEN_NODES=[t_dmg,t_aspd,t_crit,t_hp,t_range,t_tokendrop,t_speed,t_knockback,t_critmult];
+function tokenTotalLevels(){ let s=0; TOKEN_NODES.forEach(n=>{ s+=gameData.tokenLevels[n.id]||0; }); return s; }
+
+/* =========================================================
+   2. 汎用ビルド分岐テンプレート
+      Gate(token) → Deriv1/Deriv2(star) → Upgrade x2(各deriv) → Capstone(star,両deriv解放で到達可) → Legend(star) / Ultimate(token)
+   ========================================================= */
+function buildStandardGateBranch(tokenId,tokenPos,angle,cfg){
+  const gateP=organicPlace(tokenPos,angle,180,230,tierRadius('gate'));
+  const gate=Object.assign({},cfg.gate,{costType:'token',scope:'slot',parent:tokenId,tier:'gate',isGate:true,x:gateP.x,y:gateP.y});
+
+  const d1P=organicPlace(gateP,angle-26,150,190,tierRadius('deriv'));
+  const d2P=organicPlace(gateP,angle+26,150,190,tierRadius('deriv'));
+  const deriv1=Object.assign({},cfg.deriv1.node,{costType:'star',scope:'slot',parent:gate.id,tier:'deriv',x:d1P.x,y:d1P.y});
+  const deriv2=Object.assign({},cfg.deriv2.node,{costType:'star',scope:'slot',parent:gate.id,tier:'deriv',x:d2P.x,y:d2P.y});
+
+  const u1aP=organicPlace(d1P,angle-40,120,150,tierRadius('upgrade'));
+  const u1bP=organicPlace(d1P,angle-12,120,150,tierRadius('upgrade'));
+  const up1a=Object.assign({},cfg.deriv1.upgrades[0],{parent:deriv1.id,tier:'upgrade',x:u1aP.x,y:u1aP.y});
+  const up1b=Object.assign({},cfg.deriv1.upgrades[1],{parent:deriv1.id,tier:'upgrade',x:u1bP.x,y:u1bP.y});
+
+  const u2aP=organicPlace(d2P,angle+12,120,150,tierRadius('upgrade'));
+  const u2bP=organicPlace(d2P,angle+40,120,150,tierRadius('upgrade'));
+  const up2a=Object.assign({},cfg.deriv2.upgrades[0],{parent:deriv2.id,tier:'upgrade',x:u2aP.x,y:u2aP.y});
+  const up2b=Object.assign({},cfg.deriv2.upgrades[1],{parent:deriv2.id,tier:'upgrade',x:u2bP.x,y:u2bP.y});
+
+  const capP=organicPlace(gateP,angle,320,380,tierRadius('capstone'),12);
+  const capstone=Object.assign({},cfg.capstone,{costType:'star',scope:'slot',parent:deriv1.id,tier:'capstone',x:capP.x,y:capP.y,
+    derivReq:{ids:[deriv1.id,deriv2.id],needCount:2}});
+
+  const legP=organicPlace(capP,angle-24,170,220,tierRadius('legend'));
+  const ultP=organicPlace(capP,angle+24,170,220,tierRadius('ultimate'));
+  const legend=Object.assign({},cfg.legend,{costType:'star',scope:'slot',parent:capstone.id,tier:'legend',x:legP.x,y:legP.y,
+    req:{id:capstone.id,lvl:1}});
+  const ultimate=Object.assign({},cfg.ultimate,{costType:'token',scope:'slot',parent:capstone.id,tier:'ultimate',x:ultP.x,y:ultP.y,
+    req:{id:capstone.id,lvl:1}});
+
+  return [gate,deriv1,deriv2,up1a,up1b,up2a,up2b,capstone,legend,ultimate];
+}
+
+/* =========================================================
+   3. 各ビルド定義
+   ========================================================= */
+const mageBranch=buildStandardGateBranch('t_range',t_range_pos,-170,{
+  gate:{id:'mg_gate',name:'魔術適性',icon:'✦',maxLv:1,baseCost:600,growth:1,apply:(b,l)=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'},
+  deriv1:{node:{id:'mg_lightning',name:'雷撃付与',icon:'⚡',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.mageUnlocked=true;b.chainCount+=1;},line2:'連鎖する雷を習得',line3:()=>'敵を伝う遠距離攻撃'},
+    upgrades:[
+      {id:'mg_up_chain',name:'連鎖強化',icon:'⚡',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.chainCount+=l;},line2:'雷の連鎖数が増加',line3:l=>`連鎖数+${l}`},
+      {id:'mg_up_dmg',name:'雷撃威力',icon:'⚡',maxLv:6,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.mageDmg+=5*l;},line2:'雷のダメージが上昇',line3:l=>`威力+${5*l}`},
+    ]},
+  deriv2:{node:{id:'mg_fireball',name:'業火付与',icon:'🔥',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.fireballRadius=(b.fireballRadius||0)+40;b.fireballDmg=(b.fireballDmg||0)+10;},line2:'着弾地点に爆炎を発生',line3:()=>'広範囲ダメージを付与'},
+    upgrades:[
+      {id:'mg_up_radius',name:'爆炎範囲拡大',icon:'🔥',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.fireballRadius+=12*l;},line2:'爆炎の範囲が拡大',line3:l=>`範囲+${12*l}`},
+      {id:'mg_up_burndmg',name:'爆炎威力',icon:'🔥',maxLv:6,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.fireballDmg+=6*l;},line2:'爆炎のダメージが上昇',line3:l=>`威力+${6*l}`},
+    ]},
+  capstone:{id:'mg_capstone',name:'アークメイジ',icon:'☀',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.mageDmgMult=(b.mageDmgMult||1)*1.6;},line2:'魔法系すべての威力が飛躍的に上昇',line3:()=>'魔法倍率x1.6'},
+  legend:{id:'mg_legend',name:'クロスカット・レディエンス',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendMage=true;},line2:'画面を十字に切り裂く極大閃光',line3:()=>'アクティブ発動 画面全域大ダメージ'},
+  ultimate:{id:'mg_ultimate',name:'グランドソーサラー',icon:'☀',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.mageDmgMult=(b.mageDmgMult||1)*1.4;b.chainCount+=3;},line2:'魔法系の全能力が更に強化される',line3:()=>'倍率x1.4 連鎖+3'},
+});
+
+const droneBranch=buildStandardGateBranch('t_tokendrop',t_tokendrop_pos,-130,{
+  gate:{id:'dr_gate',name:'ドローン起動',icon:'◈',maxLv:1,baseCost:700,growth:1,apply:(b,l)=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'},
+  deriv1:{node:{id:'dr_combat',name:'戦闘ドローン配備',icon:'◈',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.droneCount+=1;b.droneDmg+=3;},line2:'自律ドローンを展開',line3:()=>'周囲を旋回し自動攻撃'},
+    upgrades:[
+      {id:'dr_up_count',name:'量産ライン',icon:'◈',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.droneCount+=l;},line2:'展開数が増加',line3:l=>`ドローン数+${l}`},
+      {id:'dr_up_dmg',name:'兵装強化',icon:'◈',maxLv:6,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.droneDmg+=5*l;},line2:'ドローンの威力が上昇',line3:l=>`威力+${5*l}`},
+    ]},
+  deriv2:{node:{id:'dr_support',name:'支援ドローン配備',icon:'◈',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.droneCdReduce=(b.droneCdReduce||0)+0.15;},line2:'ドローンの攻撃間隔を短縮',line3:()=>'攻撃頻度が上昇'},
+    upgrades:[
+      {id:'dr_up_cd',name:'再突入短縮',icon:'◈',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.droneCdReduce=(b.droneCdReduce||0)+0.05*l;},line2:'攻撃間隔がさらに短縮',line3:l=>`CD-${(0.05*l).toFixed(2)}秒`},
+      {id:'dr_up_mult',name:'兵装最適化',icon:'◉',maxLv:6,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.droneDmgMult*=mult(l,1.2);},line2:'ドローンの全火力が上昇',line3:l=>`倍率x${mult(l,1.2).toFixed(2)}`},
+    ]},
+  capstone:{id:'dr_capstone',name:'AI最適化',icon:'◉',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.droneDmgMult*=1.6;},line2:'ドローン群の火力が大幅上昇',line3:()=>'ドローン倍率x1.6'},
+  legend:{id:'dr_legend',name:'プロトタイプ・マザーシップ',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendDrone=true;},line2:'巨大母艦ドローンを常時召喚',line3:()=>'レーザー照射と全体オーバークロック'},
+  ultimate:{id:'dr_ultimate',name:'ドローンフリート',icon:'◉',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.droneCount+=2;b.droneDmgMult*=1.35;},line2:'ドローン数と火力が最大まで強化',line3:()=>'数+2 倍率x1.35'},
+});
+
+const chemicalBranch=buildStandardGateBranch('t_crit',t_crit_pos,-45,{
+  gate:{id:'ch_gate',name:'高化学兵器適性',icon:'☣',maxLv:1,baseCost:650,growth:1,apply:(b,l)=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'},
+  deriv1:{node:{id:'ch_poison',name:'毒付与',icon:'🧪',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.chemUnlocked=true;b.statusChance+=0.2;b.poisonDmg+=4;},line2:'攻撃に毒を付与',line3:()=>'毎秒継続ダメージを与える'},
+    upgrades:[
+      {id:'ch_up_poisondmg',name:'毒ダメージ上昇',icon:'🧪',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.poisonDmg+=2*l;},line2:'毒の継続ダメージが上昇',line3:l=>`毒ダメージ+${2*l}`},
+      {id:'ch_up_poisontime',name:'毒継続時間増加',icon:'🧪',maxLv:5,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.poisonDuration=(b.poisonDuration||3)+l;},line2:'毒の持続時間が延長',line3:l=>`持続時間+${l}秒`},
+    ]},
+  deriv2:{node:{id:'ch_frost',name:'凍傷付与',icon:'❄',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.frostSlow+=0.25;},line2:'攻撃に凍傷を付与',line3:()=>'敵の動きを鈍らせる'},
+    upgrades:[
+      {id:'ch_up_slow',name:'鈍足強化',icon:'❄',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.frostSlow+=0.04*l;},line2:'敵の鈍足効果が強化',line3:l=>`鈍足+${Math.round(4*l)}%`},
+      {id:'ch_up_statusdmg',name:'状態異常増幅',icon:'☠',maxLv:5,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.statusDmgMult*=mult(l,1.15);},line2:'状態異常ダメージ全般が上昇',line3:l=>`倍率x${mult(l,1.15).toFixed(2)}`},
+    ]},
+  capstone:{id:'ch_capstone',name:'疫病の権化',icon:'☠',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.statusDmgMult*=1.6;},line2:'あらゆる状態異常が激化する',line3:()=>'状態異常倍率x1.6'},
+  legend:{id:'ch_legend',name:'二段火傷（インフェルノ）',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendChem=true;},line2:'毒とは別に火傷を二重付与',line3:()=>'毎秒超高ダメージで焼き尽くす'},
+  ultimate:{id:'ch_ultimate',name:'汚染フィールド',icon:'☣',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.statusChance+=0.3;b.statusDmgMult*=1.3;},line2:'状態異常の付与率と威力が最大化',line3:()=>'付与率+30% 倍率x1.3'},
+});
+
+const boxerBranch=buildStandardGateBranch('t_crit',t_crit_pos,-15,{
+  gate:{id:'bx_gate',name:'闘志の誓い',icon:'✊',maxLv:1,baseCost:650,growth:1,apply:(b,l,base)=>{b.boxerMode=true;base.range*=0.6;base.atkSpd*=0.85;b.boxerDmg+=8;},line2:'バットを捨て拳を装備する',line3:()=>'射程低下と引き換えに近接高火力'},
+  deriv1:{node:{id:'bx_fist',name:'拳強化習得',icon:'✊',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.boxerDmg+=6;},line2:'拳の基礎威力が上昇',line3:()=>'拳威力+6'},
+    upgrades:[
+      {id:'bx_up_power',name:'鋼拳強化',icon:'✊',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.boxerDmg+=6*l;},line2:'拳の威力が上昇',line3:l=>`威力+${6*l}`},
+      {id:'bx_up_combo',name:'連撃技術',icon:'✊',maxLv:6,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.boxerCombo+=0.15*l;},line2:'連続ヒットで威力が伸びる',line3:l=>`連撃倍率+${Math.round(15*l)}%`},
+    ]},
+  deriv2:{node:{id:'bx_footwork',name:'闘気循環',icon:'✊',maxLv:1,baseCost:2,growth:1,apply:(b,l,base)=>{base.speed*=1.1;},line2:'俊敏性が向上する',line3:()=>'移動速度が上昇'},
+    upgrades:[
+      {id:'bx_up_speed',name:'フットワーク',icon:'✊',maxLv:5,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l,base)=>{base.speed*=(1+0.03*l);},line2:'移動速度がさらに上昇',line3:l=>`移動速度+${Math.round(3*l)}%`},
+      {id:'bx_up_crit',name:'急所突き',icon:'✹',maxLv:5,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.boxerCritBonus=(b.boxerCritBonus||0)+0.02*l;},line2:'クリティカル率が上昇',line3:l=>`クリティカル率+${Math.round(2*l)}%`},
+    ]},
+  capstone:{id:'bx_capstone',name:'限界突破',icon:'☄',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.boxerDmgMult*=1.65;},line2:'拳の威力が限界を超えて上昇',line3:()=>'拳倍率x1.65'},
+  legend:{id:'bx_legend',name:'スーパークリティカル',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendBoxer=true;},line2:'極低確率で発生する超絶一撃',line3:()=>'敵の最大HPの約4割を吹き飛ばす'},
+  ultimate:{id:'bx_ultimate',name:'鬼神の拳',icon:'☄',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.boxerCombo+=0.3;b.boxerDmgMult*=1.35;},line2:'連撃と威力が最大まで強化される',line3:()=>'連撃+30% 倍率x1.35'},
+});
+
+const gunnerBranch=buildStandardGateBranch('t_knockback',t_knockback_pos,-90,{
+  gate:{id:'gn_gate',name:'銃器適性',icon:'●',maxLv:1,baseCost:650,growth:1,apply:(b,l)=>{b.gunnerUnlocked=true;},line2:'解放するとビルドツリーへ進入できる',line3:()=>'ピストルによる自動発砲を習得'},
+  deriv1:{node:{id:'gn_pistol',name:'ピストル装備',icon:'●',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.pistolDmg=(b.pistolDmg||0)+5;},line2:'連射・浅貫通のピストルを習得',line3:()=>'狙った方向へ自動発砲'},
+    upgrades:[
+      {id:'gn_up_pistoldmg',name:'連射機構',icon:'●',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.pistolDmg=(b.pistolDmg||0)+3*l;},line2:'ピストルの威力が上昇',line3:l=>`威力+${3*l}`},
+      {id:'gn_up_pistolspd',name:'高速リロード',icon:'●',maxLv:5,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.pistolSpd=(b.pistolSpd||0)+0.05*l;},line2:'連射速度が上昇',line3:l=>`連射速度+${Math.round(5*l)}%`},
+    ]},
+  deriv2:{node:{id:'gn_sniper',name:'スナイパー装備',icon:'◆',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.sniperDmg=(b.sniperDmg||0)+15;b.sniperPierce=(b.sniperPierce||0)+2;},line2:'重撃・深貫通のスナイパーを習得',line3:()=>'一撃の威力と貫通力に優れる'},
+    upgrades:[
+      {id:'gn_up_sniperdmg',name:'重弾薬',icon:'◆',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.sniperDmg=(b.sniperDmg||0)+8*l;},line2:'スナイパーの威力が上昇',line3:l=>`威力+${8*l}`},
+      {id:'gn_up_sniperpierce',name:'徹甲弾',icon:'◆',maxLv:5,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.sniperPierce=(b.sniperPierce||0)+l;},line2:'貫通する敵の数が増加',line3:l=>`貫通数+${l}`},
+    ]},
+  capstone:{id:'gn_capstone',name:'火器統制',icon:'☄',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.gunnerDmgMult=(b.gunnerDmgMult||1)*1.6;},line2:'銃器全般の威力が大幅上昇',line3:()=>'銃器倍率x1.6'},
+  legend:{id:'gn_legend',name:'破滅のショットガン',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendGunner=true;},line2:'扇状の全敵貫通弾幕を掃射',line3:()=>'至近距離ではボスすら瞬殺する'},
+  ultimate:{id:'gn_ultimate',name:'弾薬無限機構',icon:'☄',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.pistolDmg=(b.pistolDmg||0)+8;b.sniperDmg=(b.sniperDmg||0)+16;},line2:'すべての銃器威力が最大化される',line3:()=>'威力+8〜16'},
+});
+
+/* ---- 生命体ビルド（装甲強化テキスト修正済み・カスタム構築） ---- */
+const vitalityBranch=(function(){
+  const gateP=organicPlace(t_knockback_pos,-40,180,230,tierRadius('gate'));
+  const gate={id:'vt_gate',costType:'token',scope:'slot',parent:'t_knockback',tier:'gate',isGate:true,
+    name:'生命体適性',icon:'🛡',maxLv:1,baseCost:650,growth:1,x:gateP.x,y:gateP.y,
+    apply:()=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'};
+
+  const armorP=organicPlace(gateP,-24,150,190,tierRadius('deriv'));
+  const armorDeriv={id:'vt_armor',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
+    name:'装甲強化',icon:'🛡',maxLv:1,baseCost:2,growth:1,x:armorP.x,y:armorP.y,
+    apply:(b,l)=>{b.vitalityUnlocked=true;b.dmgReduction+=0.05;},
+    line2:'ダメージを無効化するシールドを持つ',
+    line3:()=>'HP30%以下の時に発動するシールドを取得'};
+
+  const regenP=organicPlace(gateP,24,150,190,tierRadius('deriv'));
+  const regenDeriv={id:'vt_regenroot',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
+    name:'自己修復習得',icon:'✚',maxLv:1,baseCost:2,growth:1,x:regenP.x,y:regenP.y,
+    apply:(b,l)=>{b.vitalityUnlocked=true;b.regenEnabled=true;b.regen+=6;},line2:'HPが最大値未満のとき自動回復する',line3:()=>'1秒毎にHPを回復'};
+
+  const shieldCountP=organicPlace(armorP,-18,150,190,tierRadius('upgrade'));
+  const shieldCountNode={id:'vt_shieldcount',costType:'token',scope:'slot',parent:'vt_armor',tier:'upgrade',
+    name:'最大シールド数増加',icon:'⊙',maxLv:6,baseCost:900,growth:2.2,x:shieldCountP.x,y:shieldCountP.y,
+    apply:(b,l)=>{b.shieldMaxBonus=(b.shieldMaxBonus||0)+l;},line2:'展開できるシールドの上限が増加',line3:l=>`シールド上限+${l}`};
+
+  const shieldRegenP=organicPlace(shieldCountP,-18,120,150,tierRadius('upgrade'));
+  const shieldRegenNode={id:'vt_shieldregen',costType:'star',scope:'slot',parent:'vt_shieldcount',tier:'upgrade',
+    name:'シールド自動回復',icon:'⊙',maxLv:1,baseCost:1,growth:1,x:shieldRegenP.x,y:shieldRegenP.y,
+    apply:(b,l)=>{b.shieldAutoRegen=true;},line2:'時間経過でシールドが自動復元',line3:()=>'60秒毎にシールドを1つ回復'};
+
+  const nanoP=organicPlace(regenP,18,150,190,tierRadius('upgrade'));
+  const nanoNode={id:'vt_regennano',costType:'token',scope:'slot',parent:'vt_regenroot',tier:'upgrade',
+    name:'自己修復ナノ',icon:'✚',maxLv:8,baseCost:800,growth:1.9,x:nanoP.x,y:nanoP.y,
+    apply:(b,l)=>{b.regen+=4*l;},line2:'HP自動回復量が上昇',line3:l=>`HP自動回復+${4*l}/秒`};
+
+  const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'),12);
+  const capstone={id:'vt_capstone',costType:'star',scope:'slot',parent:'vt_armor',tier:'capstone',
+    name:'不屈の意志',icon:'✝',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
+    derivReq:{ids:['vt_armor','vt_regenroot'],needCount:2},
+    apply:(b,l)=>{b.dmgReductionMult*=1.5;},line2:'被ダメージ軽減が大幅上昇',line3:()=>'軽減倍率x1.5'};
+
+  const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
+  const legend={id:'vt_legend',costType:'star',scope:'slot',parent:'vt_capstone',tier:'legend',
+    name:'ライフドレイン（吸血）',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
+    req:{id:'vt_capstone',lvl:1},
+    apply:(b,l)=>{b.legendVitality=true;},line2:'自身のHPを消費し周囲から吸血',line3:()=>'大ダメージと引き換えに大幅回復'};
+
+  const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
+  const ultimate={id:'vt_ultimate',costType:'token',scope:'slot',parent:'vt_capstone',tier:'ultimate',
+    name:'不死身の肉体',icon:'✝',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
+    req:{id:'vt_capstone',lvl:1},
+    apply:(b,l)=>{b.vitHp+=80;b.dmgReductionMult*=1.3;},line2:'HPと軽減率が最大まで強化される',line3:()=>'最大HP+80 倍率x1.3'};
+
+  return [gate,armorDeriv,regenDeriv,shieldCountNode,shieldRegenNode,nanoNode,capstone,legend,ultimate];
+})();
+
+/* ---- 弓術ビルド（新構造・カスタム構築） ---- */
 const bowBranch=(function(){
   const gateP=organicPlace(t_speed_pos,-110,180,230,tierRadius('gate'));
-  const gate={id:'bo_gate',costType:'token',scope:'slot',parent:'t_speed',tier:'gate',isGate:true,
+  const gate={id:'bo_gate',costType:'token',scope:'slot',parent:'t_speed',tier:'gate',isGate:true,starCost:1,
     name:'弓術取得',icon:'➶',maxLv:1,baseCost:600,growth:1,x:gateP.x,y:gateP.y,
     apply:(b,l)=>{b.bowUnlocked=true;},
     line2:'バットを捨てホログラムサイバーボウを装備',
-    line3:l=>'1.5秒毎に自動で矢を発射する'};
-  const gateStarCost=1;
-  gate.starCost=gateStarCost;
+    line3:()=>'1.5秒毎に自動で矢を発射する'};
 
   const multishotP=organicPlace(gateP,-26,150,190,tierRadius('deriv'));
   const multishot={id:'bo_multishot',costType:'star',scope:'slot',parent:'bo_gate',tier:'deriv',
     name:'連射弓',icon:'➶',maxLv:1,baseCost:1,growth:1,x:multishotP.x,y:multishotP.y,
     apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+1;},
-    line2:'同時に放つ矢の数が増加',line3:l=>'矢の数+1'};
+    line2:'同時に放つ矢の数が増加',line3:()=>'矢の数+1'};
 
   const multiP=organicPlace(multishotP,-40,130,160,tierRadius('upgrade'));
   const MULTI_MAXLV=5;
   const multi={id:'bo_multi',costType:'token',scope:'slot',parent:'bo_multishot',tier:'upgrade',
-    name:'マルチノック',icon:'➶',maxLv:MULTI_MAXLV,baseCost:300,growth:bowCostGrowth(MULTI_MAXLV,300,12000),
+    name:'マルチノック',icon:'➶',maxLv:MULTI_MAXLV,baseCost:300,growth:growthFor(MULTI_MAXLV,300,12000),
     x:multiP.x,y:multiP.y,apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+l;},
     line2:'矢の数がさらに増加',line3:l=>`矢の数+${l}`};
 
   const barbP=organicPlace(multishotP,-8,130,160,tierRadius('upgrade'));
   const BARB_MAXLV=6;
   const barb={id:'bo_dmg',costType:'token',scope:'slot',parent:'bo_multishot',tier:'upgrade',
-    name:'鏃強化',icon:'➶',maxLv:BARB_MAXLV,baseCost:200,growth:bowCostGrowth(BARB_MAXLV,200,10000),
-    x:barbP.x,y:barbP.y,apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+ (1.8*l/BARB_MAXLV);},
+    name:'鏃強化',icon:'➶',maxLv:BARB_MAXLV,baseCost:200,growth:growthFor(BARB_MAXLV,200,10000),
+    x:barbP.x,y:barbP.y,apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+(1.8*l/BARB_MAXLV);},
     line2:'矢の攻撃倍率が上昇',line3:l=>`攻撃倍率+${Math.round(180*l/BARB_MAXLV)}%`};
 
   const gravP=organicPlace(barbP,-8,120,150,tierRadius('upgrade'));
@@ -54,25 +298,25 @@ const bowBranch=(function(){
     name:'過重力ボルト',icon:'➶',maxLv:1,baseCost:1,growth:1,x:gravP.x,y:gravP.y,
     req:{id:'bo_dmg',lvl:BARB_MAXLV},
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.7;},
-    line2:'矢の攻撃倍率がさらに大幅上昇',line3:l=>'攻撃倍率+70%（合計+250%）'};
+    line2:'矢の攻撃倍率がさらに大幅上昇',line3:()=>'攻撃倍率+70%（合計+250%）'};
 
   const precisionP=organicPlace(gateP,26,150,190,tierRadius('deriv'));
   const precision={id:'bo_precision',costType:'star',scope:'slot',parent:'bo_gate',tier:'deriv',
     name:'精密射撃',icon:'➶',maxLv:1,baseCost:1,growth:1,x:precisionP.x,y:precisionP.y,
     apply:(b,l)=>{b.arrowPierce=(b.arrowPierce||0)+1;},
-    line2:'矢が敵を貫通するようになる',line3:l=>'貫通数+1'};
+    line2:'矢が敵を貫通するようになる',line3:()=>'貫通数+1'};
 
   const pierceP=organicPlace(precisionP,8,130,160,tierRadius('upgrade'));
   const PIERCE_MAXLV=4;
   const pierce={id:'bo_pierce',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
-    name:'貫通鏃',icon:'➶',maxLv:PIERCE_MAXLV,baseCost:150,growth:bowCostGrowth(PIERCE_MAXLV,150,9000),
+    name:'貫通鏃',icon:'➶',maxLv:PIERCE_MAXLV,baseCost:150,growth:growthFor(PIERCE_MAXLV,150,9000),
     x:pierceP.x,y:pierceP.y,apply:(b,l)=>{b.arrowPierce=(b.arrowPierce||0)+l;},
     line2:'貫通する敵の数が増加',line3:l=>`貫通数+${l}`};
 
   const rapidP=organicPlace(precisionP,40,130,160,tierRadius('upgrade'));
   const RAPID_MAXLV=7;
   const rapid={id:'bo_speed',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
-    name:'速射訓練',icon:'➶',maxLv:RAPID_MAXLV,baseCost:400,growth:bowCostGrowth(RAPID_MAXLV,400,11000),
+    name:'速射訓練',icon:'➶',maxLv:RAPID_MAXLV,baseCost:400,growth:growthFor(RAPID_MAXLV,400,11000),
     x:rapidP.x,y:rapidP.y,apply:(b,l)=>{b.bowFireInterval=1.5-(0.7*l/RAPID_MAXLV);},
     line2:'矢の発射間隔が短縮',line3:l=>`発射間隔 ${(1.5-0.7*l/RAPID_MAXLV).toFixed(2)}秒`};
 
@@ -81,66 +325,40 @@ const bowBranch=(function(){
     name:'乱れ撃ち',icon:'➹',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
     derivReq:{ids:['bo_multishot','bo_precision'],needCount:2},
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.6;},
-    line2:'弓の全ダメージが大幅上昇',line3:l=>'攻撃倍率+60%'};
+    line2:'弓の全ダメージが大幅上昇',line3:()=>'攻撃倍率+60%'};
 
   const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
   const legend={id:'bo_legend',costType:'star',scope:'slot',parent:'bo_capstone',tier:'legend',
     name:'アストラ・アロー',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
     req:{id:'bo_capstone',lvl:1},apply:(b,l)=>{b.legendBow=true;},
-    line2:'画面を貫く超巨大な光の矢',line3:l=>'進路上のすべてを消滅させる'};
+    line2:'画面を貫く超巨大な光の矢',line3:()=>'進路上のすべてを消滅させる'};
 
   const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
   const ultimate={id:'bo_ultimate',costType:'token',scope:'slot',parent:'bo_capstone',tier:'ultimate',
     name:'百鬼夜行',icon:'➹',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
     req:{id:'bo_capstone',lvl:1},apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+2;b.bowDmgMult=(b.bowDmgMult||1)+0.3;},
-    line2:'発射数と威力が最大まで強化',line3:l=>'矢の数+2 攻撃倍率+30%'};
+    line2:'発射数と威力が最大まで強化',line3:()=>'矢の数+2 攻撃倍率+30%'};
 
   return [gate,multishot,multi,barb,gravBolt,precision,pierce,rapid,capstone,legend,ultimate];
 })();
 
-/* ---- 前座ゲートのトークン+スター複合コスト対応: buyNode をゲート専用に拡張 ---- */
-function buyNode(node){
-  if(nodeState(node)!=='unlockable') return false;
-  const lvl=getLevel(node);
-  const cost=costAt(node,lvl);
-  if(node.tier==='gate' && node.starCost){
-    if(gameData.tokens<cost || gameData.skillStars<node.starCost) return false;
-    gameData.tokens-=cost; gameData.skillStars-=node.starCost;
-  } else if(node.costType==='token'){
-    if(gameData.tokens<cost) return false;
-    gameData.tokens-=cost;
-  } else {
-    if(gameData.skillStars<cost) return false;
-    gameData.skillStars-=cost;
-  }
-  if(node.scope==='global'){ gameData.tokenLevels[node.id]=lvl+1; }
-  else {
-    const slot=gameData.slots[gameData.activeSlot];
-    if(!slot.build) slot.build={};
-    slot.build[node.id]=lvl+1;
-  }
-  AudioEngine.SE.unlock();
-  SkillTree.triggerUnlockFx(node.id);
-  saveGame();
-  if(window.onCurrencyChange) window.onCurrencyChange();
-  return true;
-}
-function canAfford(node){
-  if(nodeState(node)!=='unlockable') return false;
-  const lvl=getLevel(node);
-  const cost=costAt(node,lvl);
-  if(node.tier==='gate' && node.starCost) return gameData.tokens>=cost && gameData.skillStars>=node.starCost;
-  return node.costType==='token'? gameData.tokens>=cost : gameData.skillStars>=cost;
-}
+const BUILD_NODES=[...mageBranch,...droneBranch,...chemicalBranch,...boxerBranch,...bowBranch,...gunnerBranch,...vitalityBranch];
+const ALL_NODES=[...TOKEN_NODES,...BUILD_NODES];
+function findNode(id){ return ALL_NODES.find(n=>n.id===id); }
 
-/* ---- 遠近ロック判定つきノード状態（6色対応） ----
-   locked-far   : 2つ以上奥（親の親も未解放）
-   locked-near  : 直前（親は解放済みだが本ノードの条件未達）
-   poor         : 解放条件は満たすがコスト不足
-   rich         : 購入可能
-   maxed        : レベルMAX
-   gate-owned   : 前座ゲート解放済み
-*/
+/* =========================================================
+   4. 状態判定・購入処理
+   ========================================================= */
+function getLevel(node){
+  if(node.scope==='global') return gameData.tokenLevels[node.id]||0;
+  const slot=gameData.slots[gameData.activeSlot];
+  return (slot.build&&slot.build[node.id])||0;
+}
+function isOwned(node){ return !!(node && getLevel(node)>0); }
+function reqMetCap(node){
+  const count=node.derivReq.ids.filter(id=>isOwned(findNode(id))).length;
+  return count>=node.derivReq.needCount;
+}
 function nodeState(node){
   if(node.parent==='core'){ return getLevel(node)>=node.maxLv? 'maxed':'unlockable'; }
   const parent=findNode(node.parent);
@@ -164,12 +382,80 @@ function nodeState(node){
   if(getLevel(node)>=node.maxLv) return 'maxed';
   return 'unlockable';
 }
-function reqMetCap(node){
-  const count=node.derivReq.ids.filter(id=>isOwned(findNode(id))).length;
-  return count>=node.derivReq.needCount;
+function isVisible(node){ return true; }
+function canAfford(node){
+  if(nodeState(node)!=='unlockable') return false;
+  const lvl=getLevel(node);
+  const cost=costAt(node,lvl);
+  if(node.tier==='gate' && node.starCost) return gameData.tokens>=cost && gameData.skillStars>=node.starCost;
+  return node.costType==='token'? gameData.tokens>=cost : gameData.skillStars>=cost;
 }
-function isVisible(node){ return true; } /* locked-far も描画対象（暗いグレーで表示） */
+function buyNode(node){
+  if(nodeState(node)!=='unlockable') return false;
+  const lvl=getLevel(node);
+  const cost=costAt(node,lvl);
+  if(node.tier==='gate' && node.starCost){
+    if(gameData.tokens<cost || gameData.skillStars<node.starCost) return false;
+    gameData.tokens-=cost; gameData.skillStars-=node.starCost;
+  } else if(node.costType==='token'){
+    if(gameData.tokens<cost) return false;
+    gameData.tokens-=cost;
+  } else {
+    if(gameData.skillStars<cost) return false;
+    gameData.skillStars-=cost;
+  }
+  if(node.scope==='global'){ gameData.tokenLevels[node.id]=lvl+1; }
+  else {
+    const slot=gameData.slots[gameData.activeSlot];
+    if(!slot.build) slot.build={};
+    slot.build[node.id]=lvl+1;
+  }
+  if(AudioEngine && AudioEngine.SE && AudioEngine.SE.unlock) AudioEngine.SE.unlock();
+  if(typeof SkillTree!=='undefined' && SkillTree.triggerUnlockFx) SkillTree.triggerUnlockFx(node.id);
+  saveGame();
+  if(window.onCurrencyChange) window.onCurrencyChange();
+  return true;
+}
+function respecActiveSlot(){
+  const slot=gameData.slots[gameData.activeSlot];
+  let starsRefund=0;
+  Object.keys(slot.build||{}).forEach(id=>{
+    const n=findNode(id); if(!n||n.costType!=='star') return;
+    const lvl=slot.build[id];
+    for(let l=0;l<lvl;l++) starsRefund+=costAt(n,l);
+  });
+  gameData.tokenLevels={};
+  slot.build={};
+  gameData.tokens=gameData.totalTokensEarned||0;
+  gameData.skillStars=(gameData.skillStars||0)+starsRefund;
+  saveGame();
+  if(window.onCurrencyChange) window.onCurrencyChange();
+}
 
+/* =========================================================
+   5. プレイヤーステータス計算
+   ========================================================= */
+function computePlayerStats(){
+  const base={maxHp:100,damage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,tokenMul:1};
+  const build={statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
+    bowUnlocked:false,arrowCount:1,arrowDmg:0,bowDmgMult:1,bowAtkSpd:0,bowFireInterval:1.5,arrowPierce:0,
+    boxerMode:false,boxerDmg:0,boxerCombo:1,boxerDmgMult:1,boxerCritBonus:0,
+    mageUnlocked:false,chainCount:0,mageDmg:0,mageDmgMult:1,fireballRadius:0,fireballDmg:0,mageAtkSpd:0,
+    vitalityUnlocked:false,vitHp:0,dmgReduction:0,dmgReductionMult:1,
+    regenEnabled:false,shieldMaxBonus:0,shieldAutoRegen:false,
+    droneCount:0,droneDmg:0,droneDmgMult:1,droneCdReduce:0,droneRange:0,
+    gunnerUnlocked:false,pistolDmg:0,pistolSpd:0,sniperDmg:0,sniperPierce:0,gunnerDmgMult:1,
+    legendMage:false,legendDrone:false,legendChem:false,legendBoxer:false,legendBow:false,legendGunner:false,legendVitality:false};
+  TOKEN_NODES.forEach(n=>{ const l=gameData.tokenLevels[n.id]||0; if(l>0) n.apply(base,l); });
+  const slot=gameData.slots[gameData.activeSlot];
+  BUILD_NODES.forEach(n=>{ const l=(slot.build&&slot.build[n.id])||0; if(l>0) n.apply(build,l,base); });
+  base.maxHp+=build.vitHp;
+  return {base,build};
+}
+
+/* =========================================================
+   6. ノード色決定（6色）
+   ========================================================= */
 const NODE_COLOR_MAP={
   lockedFar:'#3A3F58', lockedNear:'#8A99AD', poor:'#FF5533',
   rich:'#00F0FF', maxed:'#FFE600', gate:'#FF007F'
@@ -183,7 +469,9 @@ function resolveNodeColor(n,st,lvl){
   return NODE_COLOR_MAP.lockedFar;
 }
 
-/* ---- SkillTree: 描画順（線→円）、ノード重なり回避、CORE hoverでカーソル&ハイライト表示 ---- */
+/* =========================================================
+   7. Canvas描画 / 操作（SkillTree）
+   ========================================================= */
 const SkillTree=(function(){
   let view={scale:0.5,offsetX:0,offsetY:0};
   let dragging=false,lastX=0,lastY=0,dragged=false;
@@ -295,12 +583,12 @@ const SkillTree=(function(){
   function closePanel(){ const el=document.getElementById('skillNodePanel'); if(el) el.classList.add('hidden'); }
   function hoverCheck(sx,sy){
     const onCore=hitCoreLocal(sx,sy);
-    if(onCore!==hoverCore){ hoverCore=onCore; if(onCore) AudioEngine.SE.pop(); }
+    if(onCore!==hoverCore){ hoverCore=onCore; if(onCore && AudioEngine.SE.pop) AudioEngine.SE.pop(); }
     canvas.style.cursor = onCore? 'pointer':'default';
-    if(onCore){ if(hoverId){ hoverId=null; } return; }
+    if(onCore){ hoverId=null; return; }
     const n=hitNode(sx,sy);
     const id=n?n.id:null;
-    if(id!==hoverId){ hoverId=id; if(id) AudioEngine.SE.pop(); }
+    if(id!==hoverId){ hoverId=id; if(id && AudioEngine.SE.pop) AudioEngine.SE.pop(); }
     canvas.style.cursor = id? 'pointer':'default';
   }
   function triggerUnlockFx(id){ unlockFx[id]=0.7; }
@@ -322,7 +610,6 @@ const SkillTree=(function(){
     for(let x=originX;x<W;x+=gridStep){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
     for(let y=originY;y<H;y+=gridStep){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
-    /* 1. 枝（線）をすべて先に描画 */
     ALL_NODES.forEach(n=>{
       const parentPos = n.parent==='core'? worldToScreen(0,0) : nodeScreenPos(findNode(n.parent));
       const myPos=nodeScreenPos(n);
@@ -332,7 +619,6 @@ const SkillTree=(function(){
       ctx.beginPath(); ctx.moveTo(parentPos.x,parentPos.y); ctx.lineTo(myPos.x,myPos.y); ctx.stroke();
     });
 
-    /* 2. CORE（hover時パルス強調でクリック可能を示す） */
     const corePos=worldToScreen(0,0);
     const corePulse = hoverCore ? (0.85+0.25*Math.sin(performance.now()/160)) : 1;
     ctx.save();
@@ -346,7 +632,6 @@ const SkillTree=(function(){
     if(hoverCore){ ctx.font=`${8*view.scale}px Consolas`; ctx.fillText('TAP',corePos.x,corePos.y+10*view.scale); }
     ctx.restore();
 
-    /* 3. すべてのノード（円）を後から描画 */
     ALL_NODES.forEach(n=>{
       const st=nodeState(n);
       const p=nodeScreenPos(n); const r=nodeRadius(n);
@@ -388,7 +673,9 @@ const SkillTree=(function(){
     _worldToScreen:worldToScreen,_scale:()=>view.scale};
 })();
 
-/* ---- CORE STATUS モーダル: 12項目、攻撃力は「素の数値 [倍率込み最終値]」表記 ---- */
+/* =========================================================
+   8. CORE STATUS モーダル
+   ========================================================= */
 function openCoreModal(){
   const modal=document.getElementById('coreModal'); if(!modal) return;
   const {base,build}=computePlayerStats();
