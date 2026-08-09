@@ -52,6 +52,10 @@ const AudioEngine=(function(){
     poison(){ tone({freq:300,slideTo:260,dur:0.15,type:'sine',gain:0.08}); },
     drone(){ tone({freq:900,slideTo:1300,dur:0.06,type:'square',gain:0.1}); },
     shield(){ tone({freq:200,slideTo:800,dur:0.4,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.2,filterFreq:2000}); },
+    shieldBreak(){
+      tone({freq:2200,slideTo:600,dur:0.18,type:'square',gain:0.22});
+      noise({dur:0.15,gain:0.2,filterFreq:3500});
+    },
     bossAppear(){ tone({freq:60,slideTo:30,dur:1.4,type:'sawtooth',gain:0.4}); noise({dur:1.0,gain:0.3,filterFreq:200}); },
     bossDie(){ tone({freq:200,slideTo:20,dur:2.0,type:'sawtooth',gain:0.4}); noise({dur:1.5,gain:0.35,filterFreq:500,delay:0.1}); },
     bossShoot(){ tone({freq:180,slideTo:80,dur:0.15,type:'square',gain:0.2}); },
