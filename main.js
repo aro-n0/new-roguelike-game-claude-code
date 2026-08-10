@@ -496,21 +496,27 @@ function renderLegendButtons(){
 
 function renderWaveSkipButton(){
   const btn=document.getElementById('waveSkipBtn'); if(!btn || !game) return;
-  const lastBossWave=Object.keys(BOSS_TABLE).map(Number).filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
-  const allowed = game.wave < (lastBossWave||10) || (lastBossWave===0 && game.wave<10);
-  btn.style.display = (gameData.maxWave>0 && allowed && !game.bossActive) ? 'flex':'none';
+  const bossWaves=Object.keys(BOSS_TABLE).map(Number).sort((a,b)=>a-b);
+  const lastClearedBoss=bossWaves.filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
+  const isBossWave = !!BOSS_TABLE[game.wave];
+  const allowed = lastClearedBoss>0 && game.wave<lastClearedBoss && !isBossWave && !game.bossActive;
+  btn.style.display = allowed ? 'flex':'none';
   btn.disabled = (game.waveSkipCd||0)>0;
   btn.textContent = (game.waveSkipCd||0)>0 ? `SKIP(${Math.ceil(game.waveSkipCd)})` : 'ウェーブスキップ';
 }
 on('waveSkipBtn','click',()=>{
   if(!game || game.bossActive || (game.waveSkipCd||0)>0) return;
-  const lastBossWave=Object.keys(BOSS_TABLE).map(Number).filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
-  if(game.wave>=(lastBossWave||10)) return;
+  const bossWaves=Object.keys(BOSS_TABLE).map(Number).sort((a,b)=>a-b);
+  const lastClearedBoss=bossWaves.filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
+  if(!lastClearedBoss || game.wave>=lastClearedBoss || BOSS_TABLE[game.wave]) return;
   game.waveSkipCd=2;
-  const skippedCount=waveEnemyCount(game.wave);
+  /* スキップされるウェーブの敵を即座に一斉出現させる */
+  const count=waveEnemyCount(game.wave);
+  for(let i=0;i<count;i++){ game.enemies.push(spawnEnemy(game.wave)); }
+  game.spawnQueue=0;
   game.wave++;
   game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
-  game.spawnQueue=(game.spawnQueue||0)+skippedCount+waveEnemyCount(game.wave);
+  game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
   showWaveBanner(game.wave);
   AudioEngine.SE.click();
 });
