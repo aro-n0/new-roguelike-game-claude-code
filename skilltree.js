@@ -11,15 +11,44 @@ const GATE_THRESHOLD=12;
 const tierRadiusMap={gate:24,deriv:20,upgrade:16,capstone:26,legend:32,ultimate:30};
 function tierRadius(tier){ return tierRadiusMap[tier]||20; }
 
-/* ---- organicPlace を決定論的な相対配置に置き換え（角度・距離を厳密指定、揺らぎ排除） ---- */
+/* ---- 前座（gate）ノードのアンカー固定設定 ---- */
+const GATE_ANCHORS={
+  mg_gate:{angle:-170,dist:210},
+  dr_gate:{angle:-130,dist:210},
+  ch_gate:{angle:-45,dist:210},
+  bx_gate:{angle:-15,dist:210},
+  bo_gate:{angle:-110,dist:210},
+  gn_gate:{angle:-90,dist:210},
+  vt_gate:{angle:-40,dist:210}
+};
+
+function lockGatePosition(gate,tokenPos){
+  const anchor=GATE_ANCHORS[gate.id];
+  if(!anchor) return;
+  const rad=anchor.angle*Math.PI/180;
+  gate.x=tokenPos.x+Math.cos(rad)*anchor.dist;
+  gate.y=tokenPos.y+Math.sin(rad)*anchor.dist;
+  gate.locked=true;
+}
+
+/* ---- 派生枝の自由配置（角度拡張・枝長伸縮付き） ---- */
 const placedNodes=[{x:0,y:0,r:34}];
 function organicPlace(parent,baseAngleDeg,minDist,maxDist,radius,jitterDeg,depth){
-  const rad=baseAngleDeg*Math.PI/180;
-  const dist=(minDist+maxDist)/2;
-  const x=parent.x+Math.cos(rad)*dist;
-  const y=parent.y+Math.sin(rad)*dist;
-  placedNodes.push({x,y,r:radius});
-  return {x,y};
+  jitterDeg = jitterDeg===undefined? 40 : jitterDeg; /* 左方向への広がりを許可するため揺らぎ幅を拡大 */
+  let best=null;
+  for(let attempt=0;attempt<60;attempt++){
+    const jitter=(Math.random()*2-1)*jitterDeg;
+    const angle=(baseAngleDeg+jitter)*Math.PI/180;
+    const distScale=1+(attempt*0.03); /* 試行を重ねるごとに枝長を自動的に伸縮 */
+    const dist=(minDist+Math.random()*(maxDist-minDist))*distScale;
+    const x=parent.x+Math.cos(angle)*dist;
+    const y=parent.y+Math.sin(angle)*dist;
+    const ok=!placedNodes.some(p=>Math.hypot(x-p.x,y-p.y)<(radius+p.r+40));
+    if(ok){ best={x,y}; break; }
+    if(!best) best={x,y};
+  }
+  placedNodes.push({x:best.x,y:best.y,r:radius});
+  return best;
 }
 const core={x:0,y:0,id:'core'};
 
@@ -73,6 +102,8 @@ function tokenTotalLevels(){ let s=0; TOKEN_NODES.forEach(n=>{ s+=gameData.token
 function buildStandardGateBranch(tokenId,tokenPos,angle,cfg){
   const gateP=organicPlace(tokenPos,angle,180,230,tierRadius('gate'),18,2);
   const gate=Object.assign({},cfg.gate,{costType:'token',scope:'slot',parent:tokenId,tier:'gate',isGate:true,x:gateP.x,y:gateP.y});
+
+  lockGatePosition(gate,tokenPos);
 
   const d1P=organicPlace(gateP,angle-26,150,190,tierRadius('deriv'),20,3);
   const d2P=organicPlace(gateP,angle+26,150,190,tierRadius('deriv'),20,3);
@@ -189,12 +220,13 @@ const gunnerBranch=buildStandardGateBranch('t_knockback',t_knockback_pos,-90,{
   ultimate:{id:'gn_ultimate',name:'弾薬無限機構',icon:'☄',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.pistolDmg=(b.pistolDmg||0)+8;b.sniperDmg=(b.sniperDmg||0)+16;},line2:'すべての銃器威力が最大化される',line3:()=>'威力+8〜16'},
 });
 
-/* ---- 生命体ビルド（装甲強化テキスト修正済み） ---- */
+/* ---- 生命体ビルド ---- */
 const vitalityBranch=(function(){
   const gateP=organicPlace(t_knockback_pos,-40,180,230,tierRadius('gate'),18,2);
   const gate={id:'vt_gate',costType:'token',scope:'slot',parent:'t_knockback',tier:'gate',isGate:true,
     name:'超生命体',icon:'🛡',maxLv:1,baseCost:650,growth:1,x:gateP.x,y:gateP.y,
     apply:()=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'};
+  lockGatePosition(gate,t_knockback_pos);
 
   const armorP=organicPlace(gateP,-24,150,190,tierRadius('deriv'),20,3);
   const armorDeriv={id:'vt_armor',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
@@ -244,7 +276,7 @@ const vitalityBranch=(function(){
   return [gate,armorDeriv,regenDeriv,shieldCountNode,shieldRegenNode,nanoNode,capstone,legend,ultimate];
 })();
 
-/* ---- 弓術ビルド（三角状逆走対策・貫通ロジック修正・耐久値方式） ---- */
+/* ---- 弓術ビルド ---- */
 const bowBranch=(function(){
   const gateP=organicPlace(t_speed_pos,-110,180,230,tierRadius('gate'),18,2);
   const gate={id:'bo_gate',costType:'token',scope:'slot',parent:'t_speed',tier:'gate',isGate:true,starCost:1,
@@ -252,8 +284,8 @@ const bowBranch=(function(){
     apply:(b,l)=>{b.bowUnlocked=true;},
     line2:'バットを捨てホログラムサイバーボウを装備',
     line3:()=>'基礎2.0秒に1回、矢を自動発射'};
+  lockGatePosition(gate,t_speed_pos);
 
-  /* 分岐角度を外側へ広げて開き、混雑を解消 (-34度) */
   const multishotP=organicPlace(gateP,-34,150,190,tierRadius('deriv'));
   const multishot={id:'bo_multishot',costType:'star',scope:'slot',parent:'bo_gate',tier:'deriv',
     name:'連射弓',icon:'➶',maxLv:1,baseCost:1,growth:1,x:multishotP.x,y:multishotP.y,
@@ -281,21 +313,18 @@ const bowBranch=(function(){
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.7;},
     line2:'矢の攻撃倍率がさらに大幅上昇',line3:()=>'攻撃倍率+70%（合計+250%）'};
 
-  /* 分岐角度を外側へ広げて開き、混雑を解消 (+34度) */
   const precisionP=organicPlace(gateP,34,150,190,tierRadius('deriv'));
   const precision={id:'bo_precision',costType:'star',scope:'slot',parent:'bo_gate',tier:'deriv',
     name:'精密射撃',icon:'➶',maxLv:1,baseCost:1,growth:1,x:precisionP.x,y:precisionP.y,
     apply:(b,l)=>{ b.arrowPierce=(b.arrowPierce||0)+1; },
     line2:'矢が敵を貫通するようになる',line3:()=>'貫通数+1'};
 
-  /* bo_pierce ノード定義（maxLv2, baseCost1000, growth8で累計9000） */
   const pierceP=organicPlace(precisionP,8,130,160,tierRadius('upgrade'),22,4);
   const pierce={id:'bo_pierce',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
     name:'貫通鏃',icon:'➶',maxLv:2,baseCost:1000,growth:8,
     x:pierceP.x,y:pierceP.y,apply:(b,l)=>{ b.arrowPierce=(b.arrowPierce||0)+l; },
     line2:'貫通する敵の数が増加',line3:l=>`貫通数+${l}`};
 
-  /* 速射訓練: 減算方式、Max Lv7で-0.7秒 */
   const rapidP=organicPlace(precisionP,40,130,160,tierRadius('upgrade'),22,4);
   const RAPID_MAXLV=7;
   const rapid={id:'bo_speed',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
@@ -325,12 +354,21 @@ const bowBranch=(function(){
   return [gate,multishot,multi,barb,gravBolt,precision,pierce,rapid,capstone,legend,ultimate];
 })();
 
-/* 全ノード確定後の物理反発補正処理 */
+/* 全ノード確定後の物理反発補正: 円同士に加え、円と枝（線分）の距離も40px以上確保 */
+function pointToSegmentDist(px,py,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1; const len2=dx*dx+dy*dy||0.0001;
+  let t=((px-x1)*dx+(py-y1)*dy)/len2; t=Math.max(0,Math.min(1,t));
+  const cx=x1+t*dx, cy=y1+t*dy;
+  return Math.hypot(px-cx,py-cy);
+}
+
 function relaxAllNodes(nodes,iterations,minGap){
-  iterations=iterations||80; minGap=minGap||40;
+  iterations=iterations||100; minGap=minGap||40;
   for(let iter=0;iter<iterations;iter++){
     let moved=false;
+    /* 円同士の反発 */
     for(let i=0;i<nodes.length;i++){
+      if(nodes[i].locked) continue;
       for(let j=i+1;j<nodes.length;j++){
         const a=nodes[i], b=nodes[j];
         const ra=tierRadius(a.tier), rb=tierRadius(b.tier);
@@ -340,8 +378,25 @@ function relaxAllNodes(nodes,iterations,minGap){
         if(d<minDist){
           const overlap=(minDist-d)/2;
           const ux=dx/d, uy=dy/d;
-          a.x-=ux*overlap; a.y-=uy*overlap;
-          b.x+=ux*overlap; b.y+=uy*overlap;
+          if(!a.locked){ a.x-=ux*overlap; a.y-=uy*overlap; }
+          if(!b.locked){ b.x+=ux*overlap; b.y+=uy*overlap; }
+          moved=true;
+        }
+      }
+    }
+    /* 円と枝（線分）の反発 */
+    for(const n of nodes){
+      if(n.parent==='core') continue;
+      const parent=findNode(n.parent);
+      if(!parent) continue;
+      for(const other of nodes){
+        if(other===n || other===parent || other.locked) continue;
+        const r=tierRadius(other.tier);
+        const d=pointToSegmentDist(other.x,other.y,parent.x,parent.y,n.x,n.y);
+        if(d<r+minGap){
+          const pushAng=Math.atan2(other.y-((parent.y+n.y)/2), other.x-((parent.x+n.x)/2));
+          const push=(r+minGap-d);
+          other.x+=Math.cos(pushAng)*push; other.y+=Math.sin(pushAng)*push;
           moved=true;
         }
       }
@@ -352,7 +407,7 @@ function relaxAllNodes(nodes,iterations,minGap){
 
 const BUILD_NODES=[...mageBranch,...droneBranch,...chemicalBranch,...boxerBranch,...bowBranch,...gunnerBranch,...vitalityBranch];
 const ALL_NODES=[...TOKEN_NODES,...BUILD_NODES];
-relaxAllNodes(ALL_NODES);
+relaxAllNodes(ALL_NODES,100,40);
 
 function findNode(id){ return ALL_NODES.find(n=>n.id===id); }
 
@@ -592,7 +647,7 @@ const SkillTree=(function(){
   function closePanel(){ const el=document.getElementById('skillNodePanel'); if(el) el.classList.add('hidden'); }
   function hoverCheck(sx,sy){
     const onCore=hitCoreLocal(sx,sy);
-    if(onCore!==hoverCore){ hoverCore=onCore; if(onCore && AudioEngine.SE.pop) AudioEngine.SE.pop(); }
+    if(onCore!==hoverCore){ hoverCore=onCore; if(AudioEngine.SE.pop) AudioEngine.SE.pop(); }
     canvas.style.cursor = onCore? 'pointer':'default';
     if(onCore){ hoverId=null; return; }
     const n=hitNode(sx,sy);
@@ -661,7 +716,7 @@ const SkillTree=(function(){
       ctx.font=`${14*view.scale}px Consolas`;
       ctx.fillText(st==='fogged'?'？':n.icon, p.x, p.y-6*view.scale);
       
-      /* ---- ラベル表示バグ修正: レベルとコストが混在して表示される問題を解消 ---- */
+      /* ---- ラベル表示 ---- */
       ctx.font=`${9*view.scale}px Consolas`;
       if(st==='maxed') ctx.fillText('MAX', p.x, p.y+9*view.scale);
       else if(st==='unlockable' && lvl>0) ctx.fillText(`${lvl}/${n.maxLv}`, p.x, p.y+9*view.scale);
