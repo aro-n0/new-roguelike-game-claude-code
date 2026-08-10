@@ -1,3 +1,4 @@
+
 /* main.js */
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
