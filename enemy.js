@@ -215,26 +215,48 @@ function applyFormChange(b){
   }
 }
 
+/* ---- 出現ドロップイン処理の欠落修復: tank/fortress 共通で使用する共通エントランス関数 ---- */
+function updateBossEntrance(b,dt){
+  if(b.y<180 && (b.entranceTimer||0)<1.2){
+    b.entranceTimer=(b.entranceTimer||0)+dt;
+    b.y+=120*dt;
+    return true; /* エントランス中はtrueを返し、呼び出し側で通常処理をスキップ */
+  }
+  return false;
+}
+
 /* ---- tank更新 ---- */
 function updateBossTank(b,dt){
   const p=game.player;
+  if(updateBossEntrance(b,dt)) return;
   if(b.transforming){ updateTransform(b,dt); return; }
   if(!b.telegraph){
     b.dashTimer-=dt;
     if(b.dashTimer<=0){
       b.dashTimer= b.formTier===2?4.0:4.5;
-      const d=dist(b.x,b.y,p.x,p.y)||1;
-      const dashDist= b.formTier===2? 500*2 : 500;
-      const dashSpdMul= b.formTier===2? 1.3 : 1;
-      startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+(p.x-b.x)/d*dashDist,y2:b.y+(p.y-b.y)/d*dashDist,width:b.r*2},
-        b.formTier===2?1.0:0.6, ()=>{
-          const dd=dist(b.x,b.y,p.x,p.y)||1;
+      if(b.formTier===2){
+        /* 第2形態: 予測ラインを発射時点で確定させ、そのラインに沿って正確に突進する（プレイヤーを直接追尾しない） */
+        const d=dist(b.x,b.y,p.x,p.y)||1;
+        const lockedDX=(p.x-b.x)/d, lockedDY=(p.y-b.y)/d;
+        const dashDist=500*2;
+        startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+lockedDX*dashDist,y2:b.y+lockedDY*dashDist,width:b.r*2},1.0,()=>{
           b.mode='dash';
-          b.dashVX=(p.x-b.x)/dd*420*dashSpdMul; b.dashVY=(p.y-b.y)/dd*420*dashSpdMul;
+          b.dashVX=lockedDX*420*1.3; b.dashVY=lockedDY*420*1.3;
           b.dashTime=0.6*(dashDist/500);
           AudioEngine.SE.bossShoot();
-          checkTransformTrigger(b); /* 攻撃発動直後にチェック */
+          checkTransformTrigger(b);
         });
+      } else {
+        /* 第1形態: 予測表示のみで、突進発動時は改めてプレイヤーの位置へ向けて突進する（追尾的な前兆） */
+        startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:p.x,y2:p.y,width:b.r*2},0.6,()=>{
+          const dd=dist(b.x,b.y,p.x,p.y)||1;
+          b.mode='dash';
+          b.dashVX=(p.x-b.x)/dd*420; b.dashVY=(p.y-b.y)/dd*420;
+          b.dashTime=0.6;
+          AudioEngine.SE.bossShoot();
+          checkTransformTrigger(b);
+        });
+      }
     }
     b.attackTimer-=dt;
     if(b.attackTimer<=0){
@@ -277,6 +299,7 @@ function updateBossTank(b,dt){
 /* ---- fortress更新 ---- */
 function updateBossFortress(b,dt){
   const p=game.player;
+  if(updateBossEntrance(b,dt)) return;
   if(b.transforming){ updateTransform(b,dt); return; }
   if(!b.turnState){ b.turnState='cooldown'; b.turnCdTimer=7; }
 
@@ -354,14 +377,14 @@ function createBoss(wave){
   const base={x:W/2,y:-150,vx:0,vy:0,r:60,type,wave,dead:false,hitFlash:0,phaseTimer:0,attackTimer:1.5,dots:[],slowFactor:1,slowTimer:0,telegraph:null};
   if(type==='tank'){
     const boss=Object.assign(base,{name:'巨大タンク・デストロイヤー',color:'#a600ff',shape:'pentagon',r:70*Math.min(1.4,scale),
-      hp:900*scale,maxHp:900*scale,dmg:26*scale,spd:34,mode:'chase',dashTimer:4,formTier:1});
+      hp:900*scale,maxHp:900*scale,dmg:26*scale,spd:34,mode:'chase',dashTimer:4,formTier:1,entranceTimer:0});
     initTransformState(boss);
     return boss;
   }
   if(type==='fortress'){
     const boss=Object.assign(base,{name:'砲撃要塞',color:'#ffbe0b',shape:'triangle',r:64*Math.min(1.4,scale),
       hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:26,burstTimer:2.4,keepDist:320,formTier:1,
-      turnState:'attack',turnTimer:0,turnCdTimer:7});
+      turnState:'cooldown',turnTimer:0,turnCdTimer:7,entranceTimer:0});
     initTransformState(boss);
     return boss;
   }
@@ -401,7 +424,6 @@ function updateBoss(dt){
   const p=game.player;
   b.phaseTimer+=dt;
   if(b.hitFlash>0) b.hitFlash-=dt;
-  if(b.y<180 && b.phaseTimer<1.2){ b.y+=120*dt; return; }
 
   if(b.type==='tank'){
     updateBossTank(b,dt);
