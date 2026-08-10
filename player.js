@@ -1,4 +1,5 @@
-/* player.js（全文更新：バット既存演出完全維持＋マルチ武器配置＋Orbital Shield＋独立ダメージ計算＋drawMothership追加） */
+/* player.js（全文更新：矢のクリティカル判定修復、貫通を耐久値方式に統一、ボクサー+弓併用時の独立近接攻撃、グローブ1個描画） */
+
 function makePlayer(){
   const {base,build}=computePlayerStats();
   return {x:0,y:0,r:20,hp:base.maxHp,maxHp:base.maxHp,base,build,
@@ -66,9 +67,9 @@ function updatePlayer(dt){
 
   const targets=allTargets();
 
-  /* --- バット（既存演出完全維持）: 弓術習得時のみ非表示・攻撃停止 --- */
-  if(!p.build.bowUnlocked){
-    p.atkTimer-=dt;
+  /* --- 近接攻撃(バット/拳): 弓装備時でもボクサーモードなら独立して実行 --- */
+  if(!p.build.bowUnlocked || p.build.boxerMode){
+    p.atkTimer=(p.atkTimer===undefined?0:p.atkTimer)-dt;
     if(p.atkTimer<=0){
       const atkRange = p.build.boxerMode ? (p.build.boxerRange||42) : p.base.range;
       const inRange=targets.filter(e=>dist(e.x,e.y,p.x,p.y)<=atkRange+e.r);
@@ -76,7 +77,8 @@ function updatePlayer(dt){
         const atkSpd = p.build.boxerMode ? p.base.atkSpd*(p.build.boxerAtkSpdMul||1) : p.base.atkSpd;
         p.atkTimer=1/atkSpd;
         const nearest=inRange.reduce((a,b)=>dist(a.x,a.y,p.x,p.y)<dist(b.x,b.y,p.x,p.y)?a:b);
-        p.swingAngle=Math.atan2(nearest.y-p.y,nearest.x-p.x);
+        p.meleeAngle=Math.atan2(nearest.y-p.y,nearest.x-p.x);
+        if(!p.build.bowUnlocked) p.swingAngle=p.meleeAngle;
         p.swingAnim=0; game.hitStop=0.035;
         AudioEngine.SE.attack();
         let dmg;
@@ -95,22 +97,23 @@ function updatePlayer(dt){
           }
           spawnParticles(e.x,e.y,'#e8fbff',5);
         });
-        game.swings.push({x:p.x,y:p.y,angle:p.swingAngle,life:0.18,maxLife:0.18,range:atkRange,boxer:p.build.boxerMode});
+        game.swings.push({x:p.x,y:p.y,angle:p.meleeAngle,life:0.18,maxLife:0.18,range:atkRange,boxer:p.build.boxerMode});
       }
     }
     if(p.swingAnim<1) p.swingAnim=Math.min(1,p.swingAnim+dt/0.22);
   }
 
-  /* --- 弓（前座解放でバット代替、独立ダメージ計算） --- */
+  /* --- 弓の発射処理: クリティカル情報とpierce耐久値(maxHits)を正しくbulletへ渡す --- */
   if(p.build.bowUnlocked){
     p.boltTimer=(p.boltTimer||0)-dt;
     if(p.boltTimer<=0 && targets.length>0){
       p.boltTimer=p.build.bowFireInterval||1.5;
-      const searchR=p.build.bowSearchRadius||300;
+      const searchR=p.build.bowSearchRadius||(p.base.range*4);
       const inRange=targets.filter(e=>dist(e.x,e.y,p.x,p.y)<=searchR);
       const sorted=(inRange.length?inRange:targets).sort((a,b)=>dist(a.x,a.y,p.x,p.y)-dist(b.x,b.y,p.x,p.y));
       const n=Math.min(p.build.arrowCount||1, sorted.length);
       const rawDmg=(p.base.batDamage||p.base.damage)*(p.build.bowDmgMult||1);
+      const maxHits=1+(p.build.arrowPierce||0);
       p.swingAngle=Math.atan2(sorted[0].y-p.y,sorted[0].x-p.x);
       for(let i=0;i<n;i++){
         const t=sorted[i%sorted.length];
@@ -118,7 +121,8 @@ function updatePlayer(dt){
         const delay=i*0.05;
         setTimeout(()=>{ AudioEngine.SE.attack(); },delay*1000);
         game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*420,vy:Math.sin(ang)*420,r:6,
-          dmg:rawDmg,owner:'player',pierce:(p.build.arrowPierce||0)>0,pierceMax:p.build.arrowPierce||0,hitSet:new Set(),color:'#f4ff00',isArrow:true,critChance:p.base.crit,critMult:p.base.critMult});
+          dmg:rawDmg,owner:'player',hitSet:new Set(),maxHits,color:'#f4ff00',isArrow:true,
+          critChance:p.base.crit,critMult:p.base.critMult});
       }
     }
   }
@@ -154,7 +158,7 @@ function updatePlayer(dt){
     }
   }
 
-  /* --- ガンマン（バット/弓/拳と併用可・独立射撃） --- */
+  /* --- ガンマン: 耐久値(maxHits)方式へ統一 --- */
   if(p.build.gunnerUnlocked){
     if((p.build.pistolDmg||0)>0){
       p.pistolTimer=(p.pistolTimer||0)-dt;
@@ -165,7 +169,7 @@ function updatePlayer(dt){
         if(t){
           const ang=Math.atan2(t.y-p.y,t.x-p.x);
           game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*500,vy:Math.sin(ang)*500,r:4,
-            dmg:(p.build.pistolDmg||0)*(p.build.gunnerDmgMult||1),owner:'player',pierce:false,hitSet:new Set(),color:'#c4f5ff'});
+            dmg:(p.build.pistolDmg||0)*(p.build.gunnerDmgMult||1),owner:'player',hitSet:new Set(),maxHits:1,color:'#c4f5ff'});
         }
       }
     }
@@ -177,7 +181,8 @@ function updatePlayer(dt){
         if(t){
           const ang=Math.atan2(t.y-p.y,t.x-p.x);
           game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*640,vy:Math.sin(ang)*640,r:5,
-            dmg:(p.build.sniperDmg||0)*(p.build.gunnerDmgMult||1),owner:'player',pierce:(p.build.sniperPierce||0)>0,pierceMax:p.build.sniperPierce||0,hitSet:new Set(),color:'#ffbe0b'});
+            dmg:(p.build.sniperDmg||0)*(p.build.gunnerDmgMult||1),owner:'player',hitSet:new Set(),
+            maxHits:1+(p.build.sniperPierce||0),color:'#ffbe0b'});
         }
       }
     }
@@ -198,7 +203,7 @@ function updatePlayer(dt){
         if(t && dist(t.x,t.y,dx,dy)<220){
           dr.timer=Math.max(0.35,0.9-(p.build.droneCdReduce||0));
           const ang=Math.atan2(t.y-dy,t.x-dx);
-          game.bullets.push({x:dx,y:dy,vx:Math.cos(ang)*360,vy:Math.sin(ang)*360,r:4,dmg:p.build.droneDmg*p.build.droneDmgMult,owner:'player',pierce:false,hitSet:new Set(),color:'#00fff2'});
+          game.bullets.push({x:dx,y:dy,vx:Math.cos(ang)*360,vy:Math.sin(ang)*360,r:4,dmg:p.build.droneDmg*p.build.droneDmgMult,owner:'player',maxHits:1,hitSet:new Set(),color:'#00fff2'});
           AudioEngine.SE.drone();
         }
       }
@@ -297,12 +302,12 @@ function drawGunbit(p,offAngle){
   ctx.restore();
 }
 
+/* drawNeonKnuckles: 弓+ボクサー併用時もグローブは1個のみ描画するよう修正 */
 function drawNeonKnuckles(p){
-  [-1,1].forEach(side=>{
-    const kx=p.x+Math.cos(p.swingAngle+side*1.2)*24, ky=p.y+Math.sin(p.swingAngle+side*1.2)*24;
-    ctx.save(); ctx.translate(kx,ky); ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=10;
-    ctx.fillStyle='#ff2b4d'; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); ctx.restore();
-  });
+  const ang=p.meleeAngle!==undefined?p.meleeAngle:p.swingAngle;
+  const kx=p.x+Math.cos(ang)*24, ky=p.y+Math.sin(ang)*24;
+  ctx.save(); ctx.translate(kx,ky); ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=10;
+  ctx.fillStyle='#ff2b4d'; ctx.beginPath(); ctx.arc(0,0,7,0,Math.PI*2); ctx.fill(); ctx.restore();
 }
 
 function drawMothership(){
