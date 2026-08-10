@@ -1,4 +1,5 @@
 /* enemy.js */
+
 function spawnEnemy(wave){
   const edge=Math.floor(Math.random()*4); let x,y; const margin=60;
   if(edge===0){x=-margin;y=Math.random()*H;} else if(edge===1){x=W+margin;y=Math.random()*H;}
@@ -126,6 +127,224 @@ function drawTelegraphs(){
   });
 }
 
+/* ===================== BOSS TRANSFORM SYSTEM ===================== */
+function initTransformState(b){
+  b.transformed=false;
+  b.transforming=false;
+  b.transformPhase=null; /* 'zoomin' -> 'freeze' -> 'shake' -> 'flash' -> 'zoomout' */
+  b.transformTimer=0;
+  b.pendingTransformCheck=false; /* 攻撃パターン完了直後にチェックするフラグ */
+}
+
+function checkTransformTrigger(b){
+  if(b.transformed || b.transforming) return;
+  if(b.hp<=0) return; /* 変身前に死亡している場合は変身しない。既存の bossIsDefeated / endBoss が処理する */
+  if(b.hp/b.maxHp<=0.5){
+    startTransform(b);
+  }
+}
+
+function startTransform(b){
+  b.transforming=true;
+  b.transformPhase='zoomin';
+  b.transformTimer=0;
+  game.cameraZoom={active:true,target:b,scale:1,phase:'zoomin'};
+  game.playerFrozen=true;
+  /* 飛翔中の自弾（矢・魔法弾等）を無効化してすり抜けさせる */
+  game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
+}
+
+function updateTransform(b,dt){
+  if(!b.transforming) return;
+  b.transformTimer+=dt;
+  const zoomInDur=0.8, freezeDur=(b.type==='tank')?5:2.5, shakeDur=(b.type==='tank')?4:2, flashDur=0.4, zoomOutDur=0.8;
+
+  if(b.transformPhase==='zoomin'){
+    game.cameraZoom.scale=1+ (b.transformTimer/zoomInDur)*0.8;
+    if(b.transformTimer>=zoomInDur){ b.transformPhase='freeze'; b.transformTimer=0; }
+  }
+  else if(b.transformPhase==='freeze'){
+    if(b.transformTimer>=freezeDur){
+      b.transformPhase='shake';
+      b.transformTimer=0;
+      AudioEngine.SE.transformRumble && AudioEngine.SE.transformRumble();
+    }
+  }
+  else if(b.transformPhase==='shake'){
+    b.shakeOffsetX=(Math.random()-0.5)*10;
+    b.shakeOffsetY=(Math.random()-0.5)*10;
+    if(b.transformTimer>=shakeDur){
+      b.transformPhase='flash';
+      b.transformTimer=0;
+      b.shakeOffsetX=0; b.shakeOffsetY=0;
+      applyFormChange(b);
+      AudioEngine.SE.transformFlash && AudioEngine.SE.transformFlash();
+    }
+  }
+  else if(b.transformPhase==='flash'){
+    b.flashAlpha=Math.max(0,1-(b.transformTimer/flashDur));
+    if(b.transformTimer>=flashDur){
+      b.transformPhase='zoomout';
+      b.transformTimer=0;
+    }
+  }
+  else if(b.transformPhase==='zoomout'){
+    game.cameraZoom.scale=1.8-((b.transformTimer/zoomOutDur)*0.8);
+    if(b.transformTimer>=zoomOutDur){
+      b.transforming=false;
+      b.transformed=true;
+      game.cameraZoom={active:false,target:null,scale:1,phase:null};
+      game.playerFrozen=false;
+      game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
+    }
+  }
+}
+
+/* 形態変化: HPは変更せず（第1形態HPをそのまま継続）、見た目・攻撃パターンのみ切替 */
+function applyFormChange(b){
+  b.formTier=2;
+  if(b.type==='tank'){
+    b.shape='heptagon';
+    b.color='#ff2b4d';
+    /* HPはそのまま維持（変身直前の残量から継続） */
+  } else if(b.type==='fortress'){
+    b.shape='hexagram';
+    b.color='#f4ff00';
+    b.turnState='cooldown';
+    b.turnCdTimer=7;
+  }
+}
+
+/* ---- tank更新 ---- */
+function updateBossTank(b,dt){
+  const p=game.player;
+  if(b.transforming){ updateTransform(b,dt); return; }
+  if(!b.telegraph){
+    b.dashTimer-=dt;
+    if(b.dashTimer<=0){
+      b.dashTimer= b.formTier===2?4.0:4.5;
+      const d=dist(b.x,b.y,p.x,p.y)||1;
+      const dashDist= b.formTier===2? 500*2 : 500;
+      const dashSpdMul= b.formTier===2? 1.3 : 1;
+      startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+(p.x-b.x)/d*dashDist,y2:b.y+(p.y-b.y)/d*dashDist,width:b.r*2},
+        b.formTier===2?1.0:0.6, ()=>{
+          const dd=dist(b.x,b.y,p.x,p.y)||1;
+          b.mode='dash';
+          b.dashVX=(p.x-b.x)/dd*420*dashSpdMul; b.dashVY=(p.y-b.y)/dd*420*dashSpdMul;
+          b.dashTime=0.6*(dashDist/500);
+          AudioEngine.SE.bossShoot();
+          checkTransformTrigger(b); /* 攻撃発動直後にチェック */
+        });
+    }
+    b.attackTimer-=dt;
+    if(b.attackTimer<=0){
+      b.attackTimer=2.8;
+      if(b.formTier===2){
+        let burstCount=0;
+        const fireBurst=()=>{
+          burstCount++;
+          const rot=(burstCount-1)*10*Math.PI/180;
+          const n=16;
+          for(let i=0;i<n;i++){
+            const ang=(i/n)*Math.PI*2+rot;
+            game.bullets.push({x:b.x,y:b.y,vx:Math.cos(ang)*180,vy:Math.sin(ang)*180,r:8,
+              dmg:10+Math.floor(Math.random()*31),owner:'enemy',color:'#a600ff'});
+          }
+          if(burstCount<3){ setTimeout(fireBurst,1000); }
+          else { checkTransformTrigger(b); }
+        };
+        startTelegraph(b,{shape:'ring',x:b.x,y:b.y,r:170},0.55,fireBurst);
+      } else {
+        startTelegraph(b,{shape:'ring',x:b.x,y:b.y,r:170},0.55,()=>{
+          AudioEngine.SE.bossShoot();
+          const n=16;
+          for(let i=0;i<n;i++){
+            const ang=(i/n)*Math.PI*2;
+            game.bullets.push({x:b.x,y:b.y,vx:Math.cos(ang)*180,vy:Math.sin(ang)*180,r:8,
+              dmg:10+Math.floor(Math.random()*31),owner:'enemy',color:'#a600ff'});
+          }
+          checkTransformTrigger(b);
+        });
+      }
+    }
+  }
+  updateTelegraph(b,dt);
+  if(b.mode==='dash'){ b.dashTime-=dt; b.x+=b.dashVX*dt; b.y+=b.dashVY*dt; if(b.dashTime<=0) b.mode='chase'; }
+  else if(!b.telegraph){ moveToward(b,p.x,p.y,dt,b.spd); }
+  if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(40+Math.floor(Math.random()*11));
+}
+
+/* ---- fortress更新 ---- */
+function updateBossFortress(b,dt){
+  const p=game.player;
+  if(b.transforming){ updateTransform(b,dt); return; }
+  if(!b.turnState){ b.turnState='cooldown'; b.turnCdTimer=7; }
+
+  if(b.turnState==='cooldown'){
+    b.turnCdTimer-=dt;
+    const d=dist(b.x,b.y,p.x,p.y);
+    if(d>b.keepDist) moveToward(b,p.x,p.y,dt,b.spd*0.6);
+    if(b.turnCdTimer<=0){ b.turnState='attack'; startFortressAttack(b); }
+    if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*0.5*dt);
+    return;
+  }
+  updateTelegraph(b,dt);
+}
+
+function startFortressAttack(b){
+  const p=game.player;
+  const options = b.formTier===2 ? ['quantum','gravity','laser'] : ['quantum','gravity'];
+  const canLaser = b.formTier===2 && b.hp/b.maxHp<=0.5;
+  const pool = options.filter(o=> o!=='laser' || canLaser);
+  const choice=pool[Math.floor(Math.random()*pool.length)];
+
+  if(choice==='quantum'){
+    const ang=Math.atan2(p.y-b.y,p.x-b.x);
+    startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+Math.cos(ang)*700,y2:b.y+Math.sin(ang)*700,width:40},0.7,()=>{
+      AudioEngine.SE.bossShoot();
+      const a2=Math.atan2(p.y-b.y,p.x-b.x);
+      game.bullets.push({x:b.x,y:b.y,vx:Math.cos(a2)*220,vy:Math.sin(a2)*220,r:22,dmg:50+Math.floor(Math.random()*21),owner:'enemy',color:'#f4ff00'});
+      endFortressAttack(b);
+    });
+  } else if(choice==='gravity'){
+    startTelegraph(b,{shape:'circle',x:b.x,y:b.y,r:260},0.6,()=>{
+      const d=dist(b.x,b.y,p.x,p.y)||1;
+      if(d<260){ const ang=Math.atan2(p.y-b.y,p.x-b.x); p.x+=Math.cos(ang)*90; p.y+=Math.sin(ang)*90; }
+      else { const ang=Math.atan2(b.y-p.y,b.x-p.x); p.x+=Math.cos(ang)*60; p.y+=Math.sin(ang)*60; }
+      let shots=0;
+      const fire=()=>{
+        shots++;
+        const ang=Math.atan2(p.y-b.y,p.x-b.x);
+        game.bullets.push({x:b.x,y:b.y,vx:Math.cos(ang)*240,vy:Math.sin(ang)*240,r:7,dmg:16,owner:'enemy',color:'#ffbe0b'});
+        if(shots<3) setTimeout(fire,260); else endFortressAttack(b);
+      };
+      fire();
+    });
+  } else {
+    startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+Math.cos(Math.atan2(p.y-b.y,p.x-b.x))*900,y2:b.y+Math.sin(Math.atan2(p.y-b.y,p.x-b.x))*900,width:30},1.0,()=>{
+      b.laserActive=true; b.laserTimer=3.0;
+      AudioEngine.SE.laser();
+    });
+  }
+}
+
+function endFortressAttack(b){
+  b.turnState='cooldown'; b.turnCdTimer=7;
+  checkTransformTrigger(b);
+}
+
+function updateFortressLaser(b,dt){
+  if(!b.laserActive) return;
+  const p=game.player;
+  const targetAng=Math.atan2(p.y-b.y,p.x-b.x);
+  b.laserAngle = b.laserAngle===undefined? targetAng : b.laserAngle+(targetAng-b.laserAngle)*Math.min(1,dt*2);
+  const ex=b.x+Math.cos(b.laserAngle)*900, ey=b.y+Math.sin(b.laserAngle)*900;
+  game.lightnings.push({type:'laser',x1:b.x,y1:b.y,x2:ex,y2:ey,life:0.05,maxLife:0.05});
+  if(pointToSegDist(p.x,p.y,b.x,b.y,ex,ey)<20) damagePlayer(6*dt);
+  b.laserTimer-=dt;
+  if(b.laserTimer<=0){ b.laserActive=false; endFortressAttack(b); }
+}
+
 /* ===================== BOSSES ===================== */
 const BOSS_TABLE={10:'tank',20:'fortress',30:'splitter',40:'twinhead',50:'centipede'};
 
@@ -134,12 +353,17 @@ function createBoss(wave){
   const scale=1+(wave/10-1)*0.35;
   const base={x:W/2,y:-150,vx:0,vy:0,r:60,type,wave,dead:false,hitFlash:0,phaseTimer:0,attackTimer:1.5,dots:[],slowFactor:1,slowTimer:0,telegraph:null};
   if(type==='tank'){
-    return Object.assign(base,{name:'巨大タンク・デストロイヤー',color:'#a600ff',shape:'pentagon',r:70*Math.min(1.4,scale),
-      hp:900*scale,maxHp:900*scale,dmg:26*scale,spd:34,mode:'chase',dashTimer:4});
+    const boss=Object.assign(base,{name:'巨大タンク・デストロイヤー',color:'#a600ff',shape:'pentagon',r:70*Math.min(1.4,scale),
+      hp:900*scale,maxHp:900*scale,dmg:26*scale,spd:34,mode:'chase',dashTimer:4,formTier:1});
+    initTransformState(boss);
+    return boss;
   }
   if(type==='fortress'){
-    return Object.assign(base,{name:'砲撃要塞',color:'#ffbe0b',shape:'triangle',r:64*Math.min(1.4,scale),
-      hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:26,burstTimer:2.4,keepDist:320});
+    const boss=Object.assign(base,{name:'砲撃要塞',color:'#ffbe0b',shape:'triangle',r:64*Math.min(1.4,scale),
+      hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:26,burstTimer:2.4,keepDist:320,formTier:1,
+      turnState:'attack',turnTimer:0,turnCdTimer:7});
+    initTransformState(boss);
+    return boss;
   }
   if(type==='splitter'){
     return Object.assign(base,{name:'連結円の異形',color:'#39ff88',shape:'circle',r:80*Math.min(1.4,scale),
@@ -180,49 +404,11 @@ function updateBoss(dt){
   if(b.y<180 && b.phaseTimer<1.2){ b.y+=120*dt; return; }
 
   if(b.type==='tank'){
-    if(!b.telegraph){
-      b.dashTimer-=dt;
-      if(b.dashTimer<=0){
-        b.dashTimer=4.5;
-        const d=dist(b.x,b.y,p.x,p.y)||1;
-        startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+(p.x-b.x)/d*500,y2:b.y+(p.y-b.y)/d*500,width:b.r*2},0.6,()=>{
-          const dd=dist(b.x,b.y,p.x,p.y)||1;
-          b.mode='dash'; b.dashVX=(p.x-b.x)/dd*420; b.dashVY=(p.y-b.y)/dd*420; b.dashTime=0.6;
-          AudioEngine.SE.bossShoot();
-        });
-      }
-      b.attackTimer-=dt;
-      if(b.attackTimer<=0){
-        b.attackTimer=2.8;
-        startTelegraph(b,{shape:'ring',x:b.x,y:b.y,r:170},0.55,()=>{
-          AudioEngine.SE.bossShoot();
-          const n=16;
-          for(let i=0;i<n;i++){ const ang=(i/n)*Math.PI*2; game.bullets.push({x:b.x,y:b.y,vx:Math.cos(ang)*180,vy:Math.sin(ang)*180,r:8,dmg:b.dmg*0.6,owner:'enemy',color:'#a600ff'}); }
-        });
-      }
-    }
-    updateTelegraph(b,dt);
-    if(b.mode==='dash'){ b.dashTime-=dt; b.x+=b.dashVX*dt; b.y+=b.dashVY*dt; if(b.dashTime<=0) b.mode='chase'; }
-    else if(!b.telegraph){ moveToward(b,p.x,p.y,dt,b.spd); }
-    if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*dt*2);
+    updateBossTank(b,dt);
   }
   else if(b.type==='fortress'){
-    if(!b.telegraph){
-      const d=dist(b.x,b.y,p.x,p.y);
-      if(d>b.keepDist) moveToward(b,p.x,p.y,dt,b.spd); else if(d<b.keepDist*0.7) moveAway(b,p.x,p.y,dt,b.spd);
-      b.burstTimer-=dt;
-      if(b.burstTimer<=0){
-        b.burstTimer=2.6;
-        const predX=p.x+(p.moveVX||0)*0.4, predY=p.y+(p.moveVY||0)*0.4;
-        const ang=Math.atan2(predY-b.y,predX-b.x);
-        startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+Math.cos(ang)*700,y2:b.y+Math.sin(ang)*700,width:24},0.5,()=>{
-          AudioEngine.SE.bossShoot();
-          const fire=()=>{ const a2=Math.atan2(predY-b.y,predX-b.x); game.bullets.push({x:b.x,y:b.y,vx:Math.cos(a2)*260,vy:Math.sin(a2)*260,r:7,dmg:b.dmg,owner:'enemy',color:'#ffbe0b'}); };
-          fire(); setTimeout(fire,140); setTimeout(fire,280);
-        });
-      }
-    }
-    updateTelegraph(b,dt);
+    updateBossFortress(b,dt);
+    updateFortressLaser(b,dt);
   }
   else if(b.type==='splitter'){
     if(b.hp>0) moveToward(b,p.x,p.y,dt,b.spd);
@@ -290,6 +476,7 @@ function updateBoss(dt){
     });
   }
 }
+
 function splitBoss(b){
   AudioEngine.SE.hitEnemy(); screenShake(12);
   for(let i=0;i<2;i++){
@@ -298,6 +485,30 @@ function splitBoss(b){
     spawnParticles(b.x,b.y,b.color,20);
   }
 }
+
+function drawBossShape(b){
+  ctx.save();
+  const flash=b.hitFlash>0?'#fff':b.color;
+  const ox=b.shakeOffsetX||0, oy=b.shakeOffsetY||0;
+  ctx.translate(ox,oy);
+  ctx.shadowColor=b.color; ctx.shadowBlur=24; ctx.fillStyle=flash; ctx.strokeStyle=b.color; ctx.lineWidth=3;
+  if(b.shape==='pentagon') drawRoundedPolygon(b.x,b.y,b.r,5,-Math.PI/2,8);
+  else if(b.shape==='heptagon') drawRoundedPolygon(b.x,b.y,b.r,7,-Math.PI/2,8);
+  else if(b.shape==='triangle') drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,8);
+  else if(b.shape==='hexagram'){
+    drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,6);
+    drawRoundedPolygon(b.x,b.y,b.r,3,Math.PI/2,6);
+  }
+  else { ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); }
+  ctx.fill(); ctx.stroke();
+  ctx.translate(-ox,-oy);
+  ctx.restore();
+  if(b.transformPhase==='flash' && b.flashAlpha>0){
+    ctx.save(); ctx.globalAlpha=b.flashAlpha; ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r*1.4,0,Math.PI*2); ctx.fill(); ctx.restore();
+  }
+}
+
 function drawBoss(){
   const b=game.boss; if(!b) return;
   if(b.type==='centipede'){
@@ -308,20 +519,16 @@ function drawBoss(){
     }
     return;
   }
-  ctx.save();
-  const flash=b.hitFlash>0?'#fff':b.color;
-  ctx.shadowColor=b.color; ctx.shadowBlur=24; ctx.fillStyle=flash; ctx.strokeStyle=b.color; ctx.lineWidth=3;
-  if(b.shape==='pentagon') drawRoundedPolygon(b.x,b.y,b.r,5,-Math.PI/2,8);
-  else if(b.shape==='triangle') drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,8);
-  else { ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); }
-  ctx.fill(); ctx.stroke();
-  ctx.restore();
+  
+  drawBossShape(b);
+
   if(b.children) b.children.forEach(c=>{
     if(c.dead) return;
     ctx.save(); ctx.shadowColor=c.color; ctx.shadowBlur=14; ctx.fillStyle=c.hitFlash>0?'#fff':c.color; ctx.strokeStyle=c.color; ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore();
   });
 }
+
 function dissolveBoss(){
   const b=game.boss; if(!b) return;
   const pts = b.type==='centipede'? b.segs.filter(s=>!s.dead) : (b.type==='splitter'? [b,...b.children.filter(c=>!c.dead)] : [b]);
