@@ -289,20 +289,31 @@ function update(dt){
     }
   }
 
+  /* main.js（差分：矢/銃弾の当たり判定をクリティカル対応＋maxHits耐久値方式に統一） */
   for(const b of game.bullets){
     b.x+=b.vx*dt; b.y+=b.vy*dt;
     b.dead=(b.x<-50||b.x>W+50||b.y<-50||b.y>H+50);
     if(b.owner==='enemy' && !b.dead){
       if(dist(b.x,b.y,p.x,p.y)<b.r+p.r){ damagePlayer(b.dmg); b.dead=true; }
     } else if(b.owner==='player' && !b.dead){
-      let targets=[...game.enemies];
+      let targets2=[...game.enemies];
       if(game.bossActive && game.boss){
         const bossTargets = game.boss.type==='splitter'?[game.boss,...game.boss.children]:(game.boss.type==='centipede'?game.boss.segs:[game.boss]);
-        targets=targets.concat(bossTargets.filter(t=>!t.dead));
+        targets2=targets2.concat(bossTargets.filter(t=>!t.dead));
       }
-      for(const e of targets){
+      for(const e of targets2){
         if(b.hitSet.has(e)) continue;
-        if(dist(b.x,b.y,e.x,e.y)<b.r+e.r){ damageTarget(e,b.dmg); tryApplyStatus(e); b.hitSet.add(e); if(!b.pierce){ b.dead=true; break; } }
+        if(dist(b.x,b.y,e.x,e.y)<b.r+e.r){
+          let dmg=b.dmg, isCrit=false;
+          if(b.isArrow && b.critChance!==undefined){
+            isCrit=Math.random()<b.critChance;
+            dmg=dmg*(isCrit?(b.critMult||2):1);
+          }
+          damageTarget(e,dmg,isCrit);
+          tryApplyStatus(e);
+          b.hitSet.add(e);
+          if(b.hitSet.size>=(b.maxHits||1)){ b.dead=true; break; }
+        }
       }
     }
   }
@@ -635,6 +646,15 @@ function ensureAudio(){ AudioEngine.init(); }
 
 on('pauseBtn','click',()=>{ AudioEngine.SE.click(); togglePause(); });
 on('btnResume','click',()=>{ AudioEngine.SE.click(); togglePause(); });
+
+/* main.js（差分：ポーズ画面に「リタイア」機能を追加） */
+on('btnRetire','click',()=>{
+  AudioEngine.SE.click();
+  const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
+  if(game){ game.paused=false; }
+  if(game && game.running){ endRun(); }
+});
+
 on('btnPauseToTitle','click',()=>{
   AudioEngine.SE.click();
   if(game){ game.running=false; game.paused=false; }
