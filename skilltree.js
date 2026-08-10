@@ -31,65 +31,56 @@ function lockGatePosition(gate,tokenPos){
   gate.locked=true;
 }
 
-/* ---- 派生枝の自由配置（角度拡張・枝長伸縮付き） ---- */
+/* ---- 派生枝の固定オフセット配置 ---- */
 const placedNodes=[{x:0,y:0,r:34}];
-function organicPlace(parent,baseAngleDeg,minDist,maxDist,radius,jitterDeg,depth){
-  jitterDeg = jitterDeg===undefined? 40 : jitterDeg; /* 左方向への広がりを許可するため揺らぎ幅を拡大 */
-  let best=null;
-  for(let attempt=0;attempt<60;attempt++){
-    const jitter=(Math.random()*2-1)*jitterDeg;
-    const angle=(baseAngleDeg+jitter)*Math.PI/180;
-    const distScale=1+(attempt*0.03); /* 試行を重ねるごとに枝長を自動的に伸縮 */
-    const dist=(minDist+Math.random()*(maxDist-minDist))*distScale;
-    const x=parent.x+Math.cos(angle)*dist;
-    const y=parent.y+Math.sin(angle)*dist;
-    const ok=!placedNodes.some(p=>Math.hypot(x-p.x,y-p.y)<(radius+p.r+40));
-    if(ok){ best={x,y}; break; }
-    if(!best) best={x,y};
-  }
-  placedNodes.push({x:best.x,y:best.y,r:radius});
-  return best;
+function organicPlace(parent,baseAngleDeg,minDist,maxDist,radius){
+  const rad=baseAngleDeg*Math.PI/180;
+  const dist=(minDist+maxDist)/2;
+  const x=parent.x+Math.cos(rad)*dist;
+  const y=parent.y+Math.sin(rad)*dist;
+  placedNodes.push({x,y,r:radius});
+  return {x,y};
 }
 const core={x:0,y:0,id:'core'};
 
 /* ---- 基礎ステータス（トークン専用ツリー、幹＝上方向） ---- */
-const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'),8,0);
+const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'));
 const T_DMG_MAXLV=50, T_DMG_BASE=20;
 const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:T_DMG_MAXLV,baseCost:T_DMG_BASE,
   growth:growthFor(T_DMG_MAXLV,T_DMG_BASE,TOKENS_50WAVES_1ROUND),parent:'core',
   x:t_dmg_pos.x,y:t_dmg_pos.y,apply:(b,l)=>{b.batDamage+=1.3*l; b.damage+=1.3*l;},line2:'近接ダメージが上昇',line3:l=>`攻撃力+${(1.3*l).toFixed(1)}`};
 
-const t_aspd_pos=organicPlace(t_dmg_pos,-150,140,185,tierRadius('gate'),12,1);
+const t_aspd_pos=organicPlace(t_dmg_pos,-150,140,185,tierRadius('gate'));
 const t_aspd={id:'t_aspd',costType:'token',scope:'global',name:'攻撃速度',icon:'⚡',maxLv:12,baseCost:10,growth:1.5,parent:'t_dmg',
   x:t_aspd_pos.x,y:t_aspd_pos.y,apply:(b,l)=>{b.atkSpd*=(1+0.03*l);},line2:'攻撃間隔が短縮',line3:l=>`攻撃速度+${Math.round(3*l)}%`};
 
-const t_crit_pos=organicPlace(t_dmg_pos,-30,140,185,tierRadius('gate'),12,1);
+const t_crit_pos=organicPlace(t_dmg_pos,-30,140,185,tierRadius('gate'));
 const t_crit={id:'t_crit',costType:'token',scope:'global',name:'クリティカル率',icon:'✹',maxLv:12,baseCost:12,growth:1.55,parent:'t_dmg',
   x:t_crit_pos.x,y:t_crit_pos.y,apply:(b,l)=>{b.crit+=0.02*l;},line2:'会心の一撃が発生しやすくなる',line3:l=>`クリティカル率+${Math.round(2*l)}%`};
 
-const t_hp_pos=organicPlace(t_dmg_pos,-90,190,235,tierRadius('gate'),10,1);
+const t_hp_pos=organicPlace(t_dmg_pos,-90,190,235,tierRadius('gate'));
 const t_hp={id:'t_hp',costType:'token',scope:'global',name:'体力増強',icon:'♥',maxLv:15,baseCost:8,growth:1.45,parent:'t_dmg',
   x:t_hp_pos.x,y:t_hp_pos.y,apply:(b,l)=>{b.maxHp+=12*l;},line2:'最大HPが増加',line3:l=>`最大HP+${12*l}`};
 
-const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'),16,2);
+const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
 const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
   x:t_range_pos.x,y:t_range_pos.y,apply:(b,l)=>{b.range*=(1+0.04*l);},line2:'近接攻撃の届く距離が伸びる',line3:l=>`射程+${Math.round(4*l)}%`};
 
 const T_DROP_MAXLV=50, T_DROP_BASE=20;
-const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'),16,2);
+const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
 const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークンドロップ率',icon:'⬡',maxLv:T_DROP_MAXLV,baseCost:T_DROP_BASE,
   growth:growthFor(T_DROP_MAXLV,T_DROP_BASE,TOKENS_50WAVES_1ROUND),parent:'t_aspd',
   x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,apply:(b,l)=>{b.tokenMul*=(1+0.05*l);},line2:'獲得するトークンが増加',line3:l=>`トークン獲得量x${(1+0.05*l).toFixed(2)}`};
 
-const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'),16,2);
+const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'));
 const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',icon:'➤',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
   x:t_speed_pos.x,y:t_speed_pos.y,apply:(b,l)=>{b.speed*=(1+0.03*l);},line2:'移動が速くなる',line3:l=>`移動速度+${Math.round(3*l)}%`};
 
-const t_knockback_pos=organicPlace(t_hp_pos,-70,140,185,tierRadius('gate'),16,2);
+const t_knockback_pos=organicPlace(t_hp_pos,-70,140,185,tierRadius('gate'));
 const t_knockback={id:'t_knockback',costType:'token',scope:'global',name:'ノックバック力',icon:'☄',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
   x:t_knockback_pos.x,y:t_knockback_pos.y,apply:(b,l)=>{b.knockback+=14*l;},line2:'攻撃時に敵を弾き飛ばす',line3:l=>`ノックバック力+${14*l}`};
 
-const t_critmult_pos=organicPlace(t_crit_pos,-15,130,170,tierRadius('deriv'),14,2);
+const t_critmult_pos=organicPlace(t_crit_pos,-15,130,170,tierRadius('deriv'));
 const T_CRITMULT_MAXLV=10;
 const t_critmult={id:'t_critmult',costType:'token',scope:'global',name:'クリティカル倍率強化',icon:'✹',maxLv:T_CRITMULT_MAXLV,baseCost:14,growth:1.45,parent:'t_crit',
   x:t_critmult_pos.x,y:t_critmult_pos.y,apply:(b,l)=>{b.critMult=2.0+(1.0*l/T_CRITMULT_MAXLV);},
@@ -100,32 +91,32 @@ function tokenTotalLevels(){ let s=0; TOKEN_NODES.forEach(n=>{ s+=gameData.token
 
 /* ---- 汎用ゲートテンプレート ---- */
 function buildStandardGateBranch(tokenId,tokenPos,angle,cfg){
-  const gateP=organicPlace(tokenPos,angle,180,230,tierRadius('gate'),18,2);
+  const gateP=organicPlace(tokenPos,angle,180,230,tierRadius('gate'));
   const gate=Object.assign({},cfg.gate,{costType:'token',scope:'slot',parent:tokenId,tier:'gate',isGate:true,x:gateP.x,y:gateP.y});
 
   lockGatePosition(gate,tokenPos);
 
-  const d1P=organicPlace(gateP,angle-26,150,190,tierRadius('deriv'),20,3);
-  const d2P=organicPlace(gateP,angle+26,150,190,tierRadius('deriv'),20,3);
+  const d1P=organicPlace(gateP,angle-26,150,190,tierRadius('deriv'));
+  const d2P=organicPlace(gateP,angle+26,150,190,tierRadius('deriv'));
   const deriv1=Object.assign({},cfg.deriv1.node,{costType:'star',scope:'slot',parent:gate.id,tier:'deriv',x:d1P.x,y:d1P.y});
   const deriv2=Object.assign({},cfg.deriv2.node,{costType:'star',scope:'slot',parent:gate.id,tier:'deriv',x:d2P.x,y:d2P.y});
 
-  const u1aP=organicPlace(d1P,angle-40,120,150,tierRadius('upgrade'),22,4);
-  const u1bP=organicPlace(d1P,angle-12,120,150,tierRadius('upgrade'),22,4);
+  const u1aP=organicPlace(d1P,angle-40,120,150,tierRadius('upgrade'));
+  const u1bP=organicPlace(d1P,angle-12,120,150,tierRadius('upgrade'));
   const up1a=Object.assign({},cfg.deriv1.upgrades[0],{parent:deriv1.id,tier:'upgrade',x:u1aP.x,y:u1aP.y});
   const up1b=Object.assign({},cfg.deriv1.upgrades[1],{parent:deriv1.id,tier:'upgrade',x:u1bP.x,y:u1bP.y});
 
-  const u2aP=organicPlace(d2P,angle+12,120,150,tierRadius('upgrade'),22,4);
-  const u2bP=organicPlace(d2P,angle+40,120,150,tierRadius('upgrade'),22,4);
+  const u2aP=organicPlace(d2P,angle+12,120,150,tierRadius('upgrade'));
+  const u2bP=organicPlace(d2P,angle+40,120,150,tierRadius('upgrade'));
   const up2a=Object.assign({},cfg.deriv2.upgrades[0],{parent:deriv2.id,tier:'upgrade',x:u2aP.x,y:u2aP.y});
   const up2b=Object.assign({},cfg.deriv2.upgrades[1],{parent:deriv2.id,tier:'upgrade',x:u2bP.x,y:u2bP.y});
 
-  const capP=organicPlace(gateP,angle,320,380,tierRadius('capstone'),10,3);
+  const capP=organicPlace(gateP,angle,320,380,tierRadius('capstone'));
   const capstone=Object.assign({},cfg.capstone,{costType:'star',scope:'slot',parent:deriv1.id,tier:'capstone',x:capP.x,y:capP.y,
     derivReq:{ids:[deriv1.id,deriv2.id],needCount:2}});
 
-  const legP=organicPlace(capP,angle-24,170,220,tierRadius('legend'),8,4);
-  const ultP=organicPlace(capP,angle+24,170,220,tierRadius('ultimate'),8,4);
+  const legP=organicPlace(capP,angle-24,170,220,tierRadius('legend'));
+  const ultP=organicPlace(capP,angle+24,170,220,tierRadius('ultimate'));
   const legend=Object.assign({},cfg.legend,{costType:'star',scope:'slot',parent:capstone.id,tier:'legend',x:legP.x,y:legP.y,
     req:{id:capstone.id,lvl:1}});
   const ultimate=Object.assign({},cfg.ultimate,{costType:'token',scope:'slot',parent:capstone.id,tier:'ultimate',x:ultP.x,y:ultP.y,
@@ -222,52 +213,52 @@ const gunnerBranch=buildStandardGateBranch('t_knockback',t_knockback_pos,-90,{
 
 /* ---- 生命体ビルド ---- */
 const vitalityBranch=(function(){
-  const gateP=organicPlace(t_knockback_pos,-40,180,230,tierRadius('gate'),18,2);
+  const gateP=organicPlace(t_knockback_pos,-40,180,230,tierRadius('gate'));
   const gate={id:'vt_gate',costType:'token',scope:'slot',parent:'t_knockback',tier:'gate',isGate:true,
     name:'超生命体',icon:'🛡',maxLv:1,baseCost:650,growth:1,x:gateP.x,y:gateP.y,
     apply:()=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'};
   lockGatePosition(gate,t_knockback_pos);
 
-  const armorP=organicPlace(gateP,-24,150,190,tierRadius('deriv'),20,3);
+  const armorP=organicPlace(gateP,-24,150,190,tierRadius('deriv'));
   const armorDeriv={id:'vt_armor',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
     name:'装甲強化',icon:'🛡',maxLv:1,baseCost:2,growth:1,x:armorP.x,y:armorP.y,
     apply:(b,l)=>{b.vitalityUnlocked=true;b.dmgReduction+=0.05;},
     line2:'ダメージを無効化するシールドを装備',
     line3:l=> l>0 ? 'HP30%以下の時に発動するシールドを取得' : 'HP30%以下の時に発動するシールドを取得'};
 
-  const regenP=organicPlace(gateP,24,150,190,tierRadius('deriv'),20,3);
+  const regenP=organicPlace(gateP,24,150,190,tierRadius('deriv'));
   const regenDeriv={id:'vt_regenroot',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
     name:'自己修復習得',icon:'✚',maxLv:1,baseCost:2,growth:1,x:regenP.x,y:regenP.y,
     apply:(b,l)=>{b.vitalityUnlocked=true;b.regenEnabled=true;b.regen+=6;},line2:'HPが最大値未満のとき自動回復する',line3:()=>'1秒毎にHPを回復'};
 
-  const shieldCountP=organicPlace(armorP,-18,150,190,tierRadius('upgrade'),22,4);
+  const shieldCountP=organicPlace(armorP,-18,150,190,tierRadius('upgrade'));
   const shieldCountNode={id:'vt_shieldcount',costType:'token',scope:'slot',parent:'vt_armor',tier:'upgrade',
     name:'最大シールド数増加',icon:'⊙',maxLv:6,baseCost:900,growth:2.2,x:shieldCountP.x,y:shieldCountP.y,
     apply:(b,l)=>{b.shieldMaxBonus=(b.shieldMaxBonus||0)+l;},line2:'展開できるシールドの上限が増加',line3:l=>`シールド上限+${l}`};
 
-  const shieldRegenP=organicPlace(shieldCountP,-18,120,150,tierRadius('upgrade'),22,5);
+  const shieldRegenP=organicPlace(shieldCountP,-18,120,150,tierRadius('upgrade'));
   const shieldRegenNode={id:'vt_shieldregen',costType:'star',scope:'slot',parent:'vt_shieldcount',tier:'upgrade',
     name:'シールド自動回復',icon:'⊙',maxLv:1,baseCost:1,growth:1,x:shieldRegenP.x,y:shieldRegenP.y,
     apply:(b,l)=>{b.shieldAutoRegen=true;},line2:'時間経過でシールドが自動復元',line3:()=>'60秒毎にシールドを1つ回復'};
 
-  const nanoP=organicPlace(regenP,18,150,190,tierRadius('upgrade'),22,4);
+  const nanoP=organicPlace(regenP,18,150,190,tierRadius('upgrade'));
   const nanoNode={id:'vt_regennano',costType:'token',scope:'slot',parent:'vt_regenroot',tier:'upgrade',
     name:'自己修復ナノ',icon:'✚',maxLv:8,baseCost:800,growth:1.9,x:nanoP.x,y:nanoP.y,
     apply:(b,l)=>{b.regen+=4*l;},line2:'HP自動回復量が上昇',line3:l=>`HP自動回復+${4*l}/秒`};
 
-  const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'),10,3);
+  const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'));
   const capstone={id:'vt_capstone',costType:'star',scope:'slot',parent:'vt_armor',tier:'capstone',
     name:'不屈の意志',icon:'✝',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
     derivReq:{ids:['vt_armor','vt_regenroot'],needCount:2},
     apply:(b,l)=>{b.dmgReductionMult*=1.5;},line2:'被ダメージ軽減が大幅上昇',line3:()=>'軽減倍率x1.5'};
 
-  const legP=organicPlace(capP,-24,180,230,tierRadius('legend'),8,4);
+  const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
   const legend={id:'vt_legend',costType:'star',scope:'slot',parent:'vt_capstone',tier:'legend',
     name:'ライフドレイン（吸血）',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
     req:{id:'vt_capstone',lvl:1},
     apply:(b,l)=>{b.legendVitality=true;},line2:'自身のHPを消費し周囲から吸血',line3:()=>'大ダメージと引き換えに大幅回復'};
 
-  const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'),8,4);
+  const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
   const ultimate={id:'vt_ultimate',costType:'token',scope:'slot',parent:'vt_capstone',tier:'ultimate',
     name:'不死身の肉体',icon:'✝',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
     req:{id:'vt_capstone',lvl:1},
@@ -278,7 +269,7 @@ const vitalityBranch=(function(){
 
 /* ---- 弓術ビルド ---- */
 const bowBranch=(function(){
-  const gateP=organicPlace(t_speed_pos,-110,180,230,tierRadius('gate'),18,2);
+  const gateP=organicPlace(t_speed_pos,-110,180,230,tierRadius('gate'));
   const gate={id:'bo_gate',costType:'token',scope:'slot',parent:'t_speed',tier:'gate',isGate:true,starCost:1,
     name:'弓術取得',icon:'➶',maxLv:1,baseCost:600,growth:1,x:gateP.x,y:gateP.y,
     apply:(b,l)=>{b.bowUnlocked=true;},
@@ -292,21 +283,21 @@ const bowBranch=(function(){
     apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+1;},
     line2:'同時に放つ矢の数が増加',line3:()=>'矢の数+1'};
 
-  const multiP=organicPlace(multishotP,-40,130,160,tierRadius('upgrade'),22,4);
+  const multiP=organicPlace(multishotP,-40,130,160,tierRadius('upgrade'));
   const MULTI_MAXLV=5;
   const multi={id:'bo_multi',costType:'token',scope:'slot',parent:'bo_multishot',tier:'upgrade',
     name:'マルチノック',icon:'➶',maxLv:MULTI_MAXLV,baseCost:300,growth:growthFor(MULTI_MAXLV,300,12000),
     x:multiP.x,y:multiP.y,apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+l;},
     line2:'矢の数がさらに増加',line3:l=>`矢の数+${l}`};
 
-  const barbP=organicPlace(multishotP,-8,130,160,tierRadius('upgrade'),22,4);
+  const barbP=organicPlace(multishotP,-8,130,160,tierRadius('upgrade'));
   const BARB_MAXLV=6;
   const barb={id:'bo_dmg',costType:'token',scope:'slot',parent:'bo_multishot',tier:'upgrade',
     name:'鏃強化',icon:'➶',maxLv:BARB_MAXLV,baseCost:200,growth:growthFor(BARB_MAXLV,200,10000),
     x:barbP.x,y:barbP.y,apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+(1.8*l/BARB_MAXLV);},
     line2:'矢の攻撃倍率が上昇',line3:l=>`攻撃倍率+${Math.round(180*l/BARB_MAXLV)}%`};
 
-  const gravP=organicPlace(barbP,-8,120,150,tierRadius('upgrade'),22,5);
+  const gravP=organicPlace(barbP,-8,120,150,tierRadius('upgrade'));
   const gravBolt={id:'bo_gravbolt',costType:'star',scope:'slot',parent:'bo_dmg',tier:'upgrade',
     name:'過重力ボルト',icon:'➶',maxLv:1,baseCost:1,growth:1,x:gravP.x,y:gravP.y,
     req:{id:'bo_dmg',lvl:BARB_MAXLV},
@@ -319,33 +310,33 @@ const bowBranch=(function(){
     apply:(b,l)=>{ b.arrowPierce=(b.arrowPierce||0)+1; },
     line2:'矢が敵を貫通するようになる',line3:()=>'貫通数+1'};
 
-  const pierceP=organicPlace(precisionP,8,130,160,tierRadius('upgrade'),22,4);
+  const pierceP=organicPlace(precisionP,8,130,160,tierRadius('upgrade'));
   const pierce={id:'bo_pierce',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
     name:'貫通鏃',icon:'➶',maxLv:2,baseCost:1000,growth:8,
     x:pierceP.x,y:pierceP.y,apply:(b,l)=>{ b.arrowPierce=(b.arrowPierce||0)+l; },
     line2:'貫通する敵の数が増加',line3:l=>`貫通数+${l}`};
 
-  const rapidP=organicPlace(precisionP,40,130,160,tierRadius('upgrade'),22,4);
+  const rapidP=organicPlace(precisionP,40,130,160,tierRadius('upgrade'));
   const RAPID_MAXLV=7;
   const rapid={id:'bo_speed',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
     name:'速射訓練',icon:'➶',maxLv:RAPID_MAXLV,baseCost:400,growth:growthFor(RAPID_MAXLV,400,11000),
     x:rapidP.x,y:rapidP.y,apply:(b,l)=>{b.bowSpeedReduce=(b.bowSpeedReduce||0)+0.1*l;},
     line2:'矢の発射間隔がさらに短縮',line3:l=>`発射間隔-${(0.1*l).toFixed(1)}秒`};
 
-  const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'),10,3);
+  const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'));
   const capstone={id:'bo_capstone',costType:'star',scope:'slot',parent:'bo_multishot',tier:'capstone',
     name:'乱れ撃ち',icon:'➹',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
     derivReq:{ids:['bo_multishot','bo_precision'],needCount:2},
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.6;},
     line2:'弓の全ダメージが大幅上昇',line3:()=>'攻撃倍率+60%'};
 
-  const legP=organicPlace(capP,-24,180,230,tierRadius('legend'),8,4);
+  const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
   const legend={id:'bo_legend',costType:'star',scope:'slot',parent:'bo_capstone',tier:'legend',
     name:'アストラ・アロー',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
     req:{id:'bo_capstone',lvl:1},apply:(b,l)=>{b.legendBow=true;},
     line2:'画面を貫く超巨大な光の矢',line3:()=>'進路上のすべてを消滅させる'};
 
-  const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'),8,4);
+  const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
   const ultimate={id:'bo_ultimate',costType:'token',scope:'slot',parent:'bo_capstone',tier:'ultimate',
     name:'百鬼夜行',icon:'➹',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
     req:{id:'bo_capstone',lvl:1},apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+2;b.bowDmgMult=(b.bowDmgMult||1)+0.3;},
@@ -354,60 +345,8 @@ const bowBranch=(function(){
   return [gate,multishot,multi,barb,gravBolt,precision,pierce,rapid,capstone,legend,ultimate];
 })();
 
-/* 全ノード確定後の物理反発補正: 円同士に加え、円と枝（線分）の距離も40px以上確保 */
-function pointToSegmentDist(px,py,x1,y1,x2,y2){
-  const dx=x2-x1,dy=y2-y1; const len2=dx*dx+dy*dy||0.0001;
-  let t=((px-x1)*dx+(py-y1)*dy)/len2; t=Math.max(0,Math.min(1,t));
-  const cx=x1+t*dx, cy=y1+t*dy;
-  return Math.hypot(px-cx,py-cy);
-}
-
-function relaxAllNodes(nodes,iterations,minGap){
-  iterations=iterations||100; minGap=minGap||40;
-  for(let iter=0;iter<iterations;iter++){
-    let moved=false;
-    /* 円同士の反発 */
-    for(let i=0;i<nodes.length;i++){
-      if(nodes[i].locked) continue;
-      for(let j=i+1;j<nodes.length;j++){
-        const a=nodes[i], b=nodes[j];
-        const ra=tierRadius(a.tier), rb=tierRadius(b.tier);
-        const minDist=ra+rb+minGap;
-        const dx=b.x-a.x, dy=b.y-a.y;
-        const d=Math.hypot(dx,dy)||0.001;
-        if(d<minDist){
-          const overlap=(minDist-d)/2;
-          const ux=dx/d, uy=dy/d;
-          if(!a.locked){ a.x-=ux*overlap; a.y-=uy*overlap; }
-          if(!b.locked){ b.x+=ux*overlap; b.y+=uy*overlap; }
-          moved=true;
-        }
-      }
-    }
-    /* 円と枝（線分）の反発 */
-    for(const n of nodes){
-      if(n.parent==='core') continue;
-      const parent=findNode(n.parent);
-      if(!parent) continue;
-      for(const other of nodes){
-        if(other===n || other===parent || other.locked) continue;
-        const r=tierRadius(other.tier);
-        const d=pointToSegmentDist(other.x,other.y,parent.x,parent.y,n.x,n.y);
-        if(d<r+minGap){
-          const pushAng=Math.atan2(other.y-((parent.y+n.y)/2), other.x-((parent.x+n.x)/2));
-          const push=(r+minGap-d);
-          other.x+=Math.cos(pushAng)*push; other.y+=Math.sin(pushAng)*push;
-          moved=true;
-        }
-      }
-    }
-    if(!moved) break;
-  }
-}
-
 const BUILD_NODES=[...mageBranch,...droneBranch,...chemicalBranch,...boxerBranch,...bowBranch,...gunnerBranch,...vitalityBranch];
 const ALL_NODES=[...TOKEN_NODES,...BUILD_NODES];
-relaxAllNodes(ALL_NODES,100,40);
 
 function findNode(id){ return ALL_NODES.find(n=>n.id===id); }
 
