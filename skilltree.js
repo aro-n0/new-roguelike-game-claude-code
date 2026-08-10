@@ -11,25 +11,15 @@ const GATE_THRESHOLD=12;
 const tierRadiusMap={gate:24,deriv:20,upgrade:16,capstone:26,legend:32,ultimate:30};
 function tierRadius(tier){ return tierRadiusMap[tier]||20; }
 
-/* ---- 木構造配置: COREから上方向へ、外側ほど角度が寝るカーブで枝分かれ ---- */
+/* ---- organicPlace を決定論的な相対配置に置き換え（角度・距離を厳密指定、揺らぎ排除） ---- */
 const placedNodes=[{x:0,y:0,r:34}];
 function organicPlace(parent,baseAngleDeg,minDist,maxDist,radius,jitterDeg,depth){
-  depth = depth===undefined?1:depth;
-  /* 深さが増すほど揺らぎを大きく（外側ほど角度が寝る＝カーブが緩やかになる） */
-  jitterDeg = jitterDeg===undefined? Math.min(30, 10+depth*4) : jitterDeg;
-  let best=null;
-  for(let attempt=0;attempt<40;attempt++){
-    const jitter=(Math.random()*2-1)*jitterDeg;
-    const angle=(baseAngleDeg+jitter)*Math.PI/180;
-    const dist=minDist+Math.random()*(maxDist-minDist);
-    const x=parent.x+Math.cos(angle)*dist;
-    const y=parent.y+Math.sin(angle)*dist;
-    const ok=!placedNodes.some(p=>Math.hypot(x-p.x,y-p.y)<(radius+p.r+40));
-    if(ok){ best={x,y}; break; }
-    if(!best) best={x,y};
-  }
-  placedNodes.push({x:best.x,y:best.y,r:radius});
-  return best;
+  const rad=baseAngleDeg*Math.PI/180;
+  const dist=(minDist+maxDist)/2;
+  const x=parent.x+Math.cos(rad)*dist;
+  const y=parent.y+Math.sin(rad)*dist;
+  placedNodes.push({x,y,r:radius});
+  return {x,y};
 }
 const core={x:0,y:0,id:'core'};
 
@@ -254,7 +244,7 @@ const vitalityBranch=(function(){
   return [gate,armorDeriv,regenDeriv,shieldCountNode,shieldRegenNode,nanoNode,capstone,legend,ultimate];
 })();
 
-/* ---- 弓術ビルド（減算方式クールダウン統一・独立ダメージ計算） ---- */
+/* ---- 弓術ビルド（三角状逆走対策・貫通ロジック修正・耐久値方式） ---- */
 const bowBranch=(function(){
   const gateP=organicPlace(t_speed_pos,-110,180,230,tierRadius('gate'),18,2);
   const gate={id:'bo_gate',costType:'token',scope:'slot',parent:'t_speed',tier:'gate',isGate:true,starCost:1,
@@ -263,7 +253,8 @@ const bowBranch=(function(){
     line2:'バットを捨てホログラムサイバーボウを装備',
     line3:()=>'基礎2.0秒に1回、矢を自動発射'};
 
-  const multishotP=organicPlace(gateP,-26,150,190,tierRadius('deriv'),20,3);
+  /* 分岐角度を外側へ広げて開き、混雑を解消 (-34度) */
+  const multishotP=organicPlace(gateP,-34,150,190,tierRadius('deriv'));
   const multishot={id:'bo_multishot',costType:'star',scope:'slot',parent:'bo_gate',tier:'deriv',
     name:'連射弓',icon:'➶',maxLv:1,baseCost:1,growth:1,x:multishotP.x,y:multishotP.y,
     apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+1;},
@@ -290,17 +281,18 @@ const bowBranch=(function(){
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.7;},
     line2:'矢の攻撃倍率がさらに大幅上昇',line3:()=>'攻撃倍率+70%（合計+250%）'};
 
-  const precisionP=organicPlace(gateP,26,150,190,tierRadius('deriv'),20,3);
+  /* 分岐角度を外側へ広げて開き、混雑を解消 (+34度) */
+  const precisionP=organicPlace(gateP,34,150,190,tierRadius('deriv'));
   const precision={id:'bo_precision',costType:'star',scope:'slot',parent:'bo_gate',tier:'deriv',
     name:'精密射撃',icon:'➶',maxLv:1,baseCost:1,growth:1,x:precisionP.x,y:precisionP.y,
-    apply:(b,l)=>{b.arrowPierce=(b.arrowPierce||0)+1;b.bowRangeBonus=(b.bowRangeBonus||0);},
+    apply:(b,l)=>{ b.arrowPierce=(b.arrowPierce||0)+1; },
     line2:'矢が敵を貫通するようになる',line3:()=>'貫通数+1'};
 
+  /* bo_pierce ノード定義（maxLv2, baseCost1000, growth8で累計9000） */
   const pierceP=organicPlace(precisionP,8,130,160,tierRadius('upgrade'),22,4);
-  const PIERCE_MAXLV=4;
   const pierce={id:'bo_pierce',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
-    name:'貫通鏃',icon:'➶',maxLv:PIERCE_MAXLV,baseCost:150,growth:growthFor(PIERCE_MAXLV,150,9000),
-    x:pierceP.x,y:pierceP.y,apply:(b,l)=>{b.arrowPierce=(b.arrowPierce||0)+l;},
+    name:'貫通鏃',icon:'➶',maxLv:2,baseCost:1000,growth:8,
+    x:pierceP.x,y:pierceP.y,apply:(b,l)=>{ b.arrowPierce=(b.arrowPierce||0)+l; },
     line2:'貫通する敵の数が増加',line3:l=>`貫通数+${l}`};
 
   /* 速射訓練: 減算方式、Max Lv7で-0.7秒 */
@@ -333,8 +325,35 @@ const bowBranch=(function(){
   return [gate,multishot,multi,barb,gravBolt,precision,pierce,rapid,capstone,legend,ultimate];
 })();
 
+/* 全ノード確定後の物理反発補正処理 */
+function relaxAllNodes(nodes,iterations,minGap){
+  iterations=iterations||80; minGap=minGap||40;
+  for(let iter=0;iter<iterations;iter++){
+    let moved=false;
+    for(let i=0;i<nodes.length;i++){
+      for(let j=i+1;j<nodes.length;j++){
+        const a=nodes[i], b=nodes[j];
+        const ra=tierRadius(a.tier), rb=tierRadius(b.tier);
+        const minDist=ra+rb+minGap;
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const d=Math.hypot(dx,dy)||0.001;
+        if(d<minDist){
+          const overlap=(minDist-d)/2;
+          const ux=dx/d, uy=dy/d;
+          a.x-=ux*overlap; a.y-=uy*overlap;
+          b.x+=ux*overlap; b.y+=uy*overlap;
+          moved=true;
+        }
+      }
+    }
+    if(!moved) break;
+  }
+}
+
 const BUILD_NODES=[...mageBranch,...droneBranch,...chemicalBranch,...boxerBranch,...bowBranch,...gunnerBranch,...vitalityBranch];
 const ALL_NODES=[...TOKEN_NODES,...BUILD_NODES];
+relaxAllNodes(ALL_NODES);
+
 function findNode(id){ return ALL_NODES.find(n=>n.id===id); }
 
 /* =========================================================
@@ -440,9 +459,8 @@ function computePlayerStats(){
   const bowBaseInterval=2.0-(0.5*Math.min(1,aspdLv/12));
   build.bowFireInterval=Math.max(0.8, bowBaseInterval-(build.bowSpeedReduce||0));
 
-  /* 弓のサーチ半径: 未強化300px 〜 攻撃範囲Max(10/10)で画面全体 */
-  const rangeLv=gameData.tokenLevels['t_range']||0;
-  build.bowSearchRadius=300+ (Math.max(W,H)*1.5-300)*Math.min(1,rangeLv/10);
+  /* 弓のサーチ半径: バット射程の4倍基準 */
+  build.bowSearchRadius=base.range*4;
 
   return {base,build};
 }
@@ -642,9 +660,11 @@ const SkillTree=(function(){
       ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.font=`${14*view.scale}px Consolas`;
       ctx.fillText(st==='fogged'?'？':n.icon, p.x, p.y-6*view.scale);
+      
+      /* ---- ラベル表示バグ修正: レベルとコストが混在して表示される問題を解消 ---- */
       ctx.font=`${9*view.scale}px Consolas`;
       if(st==='maxed') ctx.fillText('MAX', p.x, p.y+9*view.scale);
-      else if(st==='unlockable' && lvl>0) ctx.fillText(`${lvl}/${n.maxLv}  ${costAt(n,lvl)}`, p.x, p.y+9*view.scale);
+      else if(st==='unlockable' && lvl>0) ctx.fillText(`${lvl}/${n.maxLv}`, p.x, p.y+9*view.scale);
       else if(st==='unlockable') ctx.fillText(`${costAt(n,lvl)}`, p.x, p.y+9*view.scale);
       else if(st==='fogged') ctx.fillText(`${costAt(n,0)}`, p.x, p.y+9*view.scale);
       ctx.restore();
