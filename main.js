@@ -1,4 +1,3 @@
-
 /* main.js */
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
@@ -91,7 +90,6 @@ function screenShake(a){ game.shake=Math.max(game.shake,a); }
 function waveEnemyCount(wave){ return Math.round(10+(wave-1)*4.4); }
 function grantTokens(amount){ gameData.tokens+=amount; gameData.totalTokensEarned=(gameData.totalTokensEarned||0)+amount; }
 
-/* damagePlayer: シールド消費時の破壊演出を強化（白フラッシュ後に青粒子飛散） */
 function damagePlayer(amount){
   const p=game.player; if(p.invuln>0) return;
   if((p.shield||0)>0){
@@ -109,8 +107,6 @@ function damagePlayer(amount){
   const reduced = amount*(1-Math.min(0.85,p.build.dmgReduction*p.build.dmgReductionMult));
   p.hp-=reduced; p.invuln=0.5; AudioEngine.SE.playerHit(); screenShake(10); spawnParticles(p.x,p.y,'#ff2b4d',10);
 
-  /* シールド獲得条件: プレイ中に自身のHPが初めて30%以下になった瞬間、能力を解放済みなら発動しシールドを付与。
-      このゲーム中のみ永続（deathでリセット）。 */
   if(!p.shieldUnlockedThisRun && p.build.shieldMaxBonus!==undefined && p.hp/p.maxHp<=0.3){
     if((p.build.shieldMaxBonus||0)>=0 && (isOwned(findNode('vt_armor')))){
       p.shieldUnlockedThisRun=true;
@@ -130,13 +126,13 @@ let previousScreen='title';
 let game=null;
 let lastTime=0;
 
-/* startRun: シールドはゲーム開始時点では未発動状態にする（発動条件を満たすまでp.shield=0固定） */
 function startRun(){
   W=canvas.width; H=canvas.height;
   game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],swings:[],lightnings:[],fireballs:[],drones:[],
     floatingTexts:[],chestPopup:null,healItems:[],regenPops:[],
     wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,spawnQueue:waveEnemyCount(1),kills:0,elapsed:0,shake:0,running:true,paused:false,
-    tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0,legendCooldowns:{crosscut:0,shotgun:0,lifedrain:0}};
+    tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0,legendCooldowns:{crosscut:0,shotgun:0,lifedrain:0},
+    cameraZoom:{active:false,scale:1,target:null}, playerFrozen:false, waveSkipCd:0};
   game.player.x=W/2; game.player.y=H/2;
   game.player.shield=0;
   game.player.shieldUnlockedThisRun=false;
@@ -149,7 +145,6 @@ function startRun(){
 function showWaveBanner(w){ const el=document.getElementById('waveBanner'); if(!el) return; el.textContent='WAVE '+w; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
 function showStarBanner(n){ const el=document.getElementById('starBanner'); if(!el) return; el.textContent=`🌟 スキルスター +${n} 獲得！`; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
 
-/* loop: ポーズ中はupdateをスキップしrenderのみ継続 */
 function loop(now){
   if(!game||!game.running) return;
   let rawDt=(now-lastTime)/1000; lastTime=now; rawDt=Math.min(rawDt,0.05);
@@ -172,7 +167,6 @@ function triggerBoss(wave){
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
 
-/* endBoss: ボス撃破時にナノ修理カプセルをドロップ */
 function endBoss(){
   const wave=game.boss.wave;
   const dropX=game.boss.x, dropY=game.boss.y;
@@ -205,12 +199,10 @@ function triggerGameClear(){
 function fmtTime(t){ return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0'); }
 function setText(id,val){ const el=document.getElementById(id); if(el) el.textContent=val; }
 
-/* updateVitalitySystems: シールド自動回復・自己修復は「未発動状態では一切動作しない」よう判定を厳密化 */
 function updateVitalitySystems(dt){
   const p=game.player;
   const maxShield=3+(p.build.shieldMaxBonus||0);
 
-  /* シールドは発動済み(shieldUnlockedThisRun=true)の場合のみ管理対象。未発動なら常に0のまま。 */
   if(p.shieldUnlockedThisRun){
     if(p.shield===undefined) p.shield=maxShield;
     if(p.build.shieldAutoRegen){
@@ -272,26 +264,34 @@ function update(dt){
     }
   }
 
-  const prevX=p.x, prevY=p.y;
-  updatePlayer(dt);
-  p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
+  if(!game.playerFrozen){
+    const prevX=p.x, prevY=p.y;
+    updatePlayer(dt);
+    p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
+  }
 
   game.swings.forEach(s=>s.life-=dt); game.swings=game.swings.filter(s=>s.life>0);
   game.lightnings.forEach(l=>l.life-=dt); game.lightnings=game.lightnings.filter(l=>l.life>0);
   game.fireballs.forEach(f=>{ f.life-=dt; f.r=f.maxR*(1-f.life/f.maxLife); }); game.fireballs=game.fireballs.filter(f=>f.life>0);
 
-  updateEnemies(dt);
+  if(!game.playerFrozen) updateEnemies(dt);
+
   if(game.bossActive && game.boss){
-    updateBoss(dt);
-    if(bossIsDefeated(game.boss)){ endBoss(); }
-    else {
+    if(game.boss.type==='tank') updateBossTank(game.boss,dt);
+    else if(game.boss.type==='fortress'){ updateBossFortress(game.boss,dt); updateFortressLaser(game.boss,dt); }
+    else updateBoss(dt);
+
+    if(bossIsDefeated(game.boss)){
+      if(game.boss.transforming){ game.boss.transforming=false; game.playerFrozen=false; game.cameraZoom={active:false,scale:1}; }
+      endBoss();
+    } else {
       const cur=bossTotalHp(game.boss), mx=bossMaxHp(game.boss);
       const bar=document.getElementById('bossHpInner'); if(bar) bar.style.width=Math.max(0,cur/mx*100)+'%';
     }
   }
 
-  /* main.js（差分：矢/銃弾の当たり判定をクリティカル対応＋maxHits耐久値方式に統一） */
   for(const b of game.bullets){
+    if(b.transformImmune) continue;
     b.x+=b.vx*dt; b.y+=b.vy*dt;
     b.dead=(b.x<-50||b.x>W+50||b.y<-50||b.y>H+50);
     if(b.owner==='enemy' && !b.dead){
@@ -306,19 +306,14 @@ function update(dt){
         if(b.hitSet.has(e)) continue;
         if(dist(b.x,b.y,e.x,e.y)<b.r+e.r){
           let dmg=b.dmg, isCrit=false;
-          if(b.isArrow && b.critChance!==undefined){
-            isCrit=Math.random()<b.critChance;
-            dmg=dmg*(isCrit?(b.critMult||2):1);
-          }
-          damageTarget(e,dmg,isCrit);
-          tryApplyStatus(e);
-          b.hitSet.add(e);
+          if(b.isArrow && b.critChance!==undefined){ isCrit=Math.random()<b.critChance; dmg=dmg*(isCrit?(b.critMult||2):1); }
+          damageTarget(e,dmg,isCrit); tryApplyStatus(e); b.hitSet.add(e);
           if(b.hitSet.size>=(b.maxHits||1)){ b.dead=true; break; }
         }
       }
     }
   }
-  game.bullets=game.bullets.filter(b=>!b.dead);
+  game.bullets=game.bullets.filter(b=>!b.dead && !b.transformImmune);
 
   for(const pt of game.particles){ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vx*=0.92; pt.vy*=0.92; pt.life-=dt; }
   game.particles=game.particles.filter(pt=>pt.life>0);
@@ -328,10 +323,8 @@ function update(dt){
     if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){
       c.collected=true;
       const gained=Math.round(c.value*p.base.tokenMul);
-      grantTokens(gained);
-      game.tokensThisRun+=gained;
-      AudioEngine.SE.chestFanfare();
-      spawnParticles(c.x,c.y,'#f4ff00',40);
+      grantTokens(gained); game.tokensThisRun+=gained;
+      AudioEngine.SE.chestFanfare(); spawnParticles(c.x,c.y,'#f4ff00',40);
       game.chestPopup={text:'+'+gained+' TOKENS!',timer:1.8,maxTimer:1.8};
     }
   }
@@ -344,6 +337,8 @@ function update(dt){
   if(!game.legendCooldowns) game.legendCooldowns={crosscut:0,shotgun:0,lifedrain:0};
   Object.keys(game.legendCooldowns).forEach(k=>{ if(game.legendCooldowns[k]>0) game.legendCooldowns[k]=Math.max(0,game.legendCooldowns[k]-dt); });
   renderLegendButtons();
+  if(game.waveSkipCd>0) game.waveSkipCd=Math.max(0,game.waveSkipCd-dt);
+  renderWaveSkipButton();
 
   updateVitalitySystems(dt);
   updateHUD();
@@ -375,6 +370,12 @@ function endRun(){
 
 function render(){
   ctx.save(); ctx.clearRect(0,0,W,H);
+  let zoomScale=1, zoomFocusX=W/2, zoomFocusY=H/2;
+  if(game.cameraZoom && game.cameraZoom.active && game.cameraZoom.target){
+    zoomScale=game.cameraZoom.scale||1;
+    zoomFocusX=game.cameraZoom.target.x; zoomFocusY=game.cameraZoom.target.y;
+    ctx.translate(W/2,H/2); ctx.scale(zoomScale,zoomScale); ctx.translate(-zoomFocusX,-zoomFocusY);
+  }
   ctx.strokeStyle='rgba(0,255,242,0.06)'; ctx.lineWidth=1;
   for(let x=0;x<W;x+=48){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
   for(let y=0;y<H;y+=48){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
@@ -390,9 +391,13 @@ function render(){
   ctx.globalAlpha=1;
 
   drawEnemies();
-  if(game.bossActive && game.boss){ drawTelegraphs(); drawBoss(); }
+  if(game.bossActive && game.boss){
+    drawTelegraphs();
+    if(game.boss.type==='tank'||game.boss.type==='fortress'){ drawBossShape(game.boss); }
+    else drawBoss();
+  }
 
-  for(const b of game.bullets){ ctx.save(); ctx.shadowColor=b.color; ctx.shadowBlur=14; ctx.fillStyle=b.color; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+  for(const b of game.bullets){ if(b.transformImmune) continue; ctx.save(); ctx.shadowColor=b.color; ctx.shadowBlur=14; ctx.fillStyle=b.color; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); ctx.restore(); }
   for(const l of game.lightnings){
     const a=l.life/l.maxLife;
     ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=l.type==='laser'?'#00fff2':'#d1c4ff'; ctx.lineWidth=l.type==='laser'?5:3;
@@ -423,7 +428,6 @@ function render(){
   }
   ctx.restore();
 
-  /* シールド表示・回復ポップ・回復アイテム描画 */
   ctx.save();
   for(const h of game.healItems){
     const glow=10+Math.sin(h.phase)*6;
@@ -438,7 +442,6 @@ function render(){
   }
   ctx.restore();
   
-  /* render() 内のシールド表示: shieldUnlockedThisRunがfalseなら常に非表示 */
   const shieldWrap=document.getElementById('hpText');
   if(shieldWrap && game.player){
     shieldWrap.textContent=`${Math.max(0,Math.ceil(game.player.hp))}/${Math.round(game.player.maxHp)}`
@@ -460,7 +463,6 @@ function render(){
   }
 }
 
-/* ---- 通貨表示（画面3=menu時のみ表示、画面1=titleでは非表示） ---- */
 function starIconHtml(){ return `<svg class="star-icon-svg" viewBox="0 0 100 140"><path d="M50 2 C54 2 56 6 58 14 L66 46 C82 48 96 50 98 54 C100 58 96 62 84 70 L64 84 C68 100 72 116 70 122 C68 128 62 128 50 118 C38 128 32 128 30 122 C28 116 32 100 36 84 L16 70 C4 62 0 58 2 54 C4 50 18 48 34 46 L42 14 C44 6 46 2 50 2 Z" fill="url(#starGrad)" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`; }
 function renderGlobalCurrency(){
   const el=document.getElementById('globalCurrency'); if(!el) return;
@@ -473,7 +475,6 @@ function onCurrencyChange(){
 }
 window.onCurrencyChange=onCurrencyChange;
 
-/* ---- レジェンドボタン ---- */
 function renderLegendButtons(){
   const wrap=document.getElementById('legendButtons'); if(!wrap || !game) return;
   wrap.innerHTML='';
@@ -493,7 +494,27 @@ function renderLegendButtons(){
   });
 }
 
-/* ---- スキルツリー画面（スロットバー・レンダリング） ---- */
+function renderWaveSkipButton(){
+  const btn=document.getElementById('waveSkipBtn'); if(!btn || !game) return;
+  const lastBossWave=Object.keys(BOSS_TABLE).map(Number).filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
+  const allowed = game.wave < (lastBossWave||10) || (lastBossWave===0 && game.wave<10);
+  btn.style.display = (gameData.maxWave>0 && allowed && !game.bossActive) ? 'flex':'none';
+  btn.disabled = (game.waveSkipCd||0)>0;
+  btn.textContent = (game.waveSkipCd||0)>0 ? `SKIP(${Math.ceil(game.waveSkipCd)})` : 'ウェーブスキップ';
+}
+on('waveSkipBtn','click',()=>{
+  if(!game || game.bossActive || (game.waveSkipCd||0)>0) return;
+  const lastBossWave=Object.keys(BOSS_TABLE).map(Number).filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
+  if(game.wave>=(lastBossWave||10)) return;
+  game.waveSkipCd=2;
+  const skippedCount=waveEnemyCount(game.wave);
+  game.wave++;
+  game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
+  game.spawnQueue=(game.spawnQueue||0)+skippedCount+waveEnemyCount(game.wave);
+  showWaveBanner(game.wave);
+  AudioEngine.SE.click();
+});
+
 let stLoopRunning=false, stLastTime=0;
 function stLoop(now){
   if(screenState!=='skilltree') { stLoopRunning=false; return; }
@@ -514,7 +535,6 @@ function renderSlotBar(){
   });
 }
 
-/* ---- セーブスロットダイアログ ---- */
 function fmtDate(ts){
   if(!ts) return '未プレイ';
   const d=new Date(ts);
@@ -570,7 +590,6 @@ function renderSaveSlotDialog(){
 function openSaveDialog(){ renderSaveSlotDialog(); const el=document.getElementById('saveSlotDialog'); if(el) el.classList.remove('hidden'); }
 function closeSaveDialog(){ const el=document.getElementById('saveSlotDialog'); if(el) el.classList.add('hidden'); }
 
-/* ---- 画面遷移管理 ---- */
 function syncScreenDom(){
   const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
   const coreModal=document.getElementById('coreModal'); if(coreModal) coreModal.classList.add('hidden');
@@ -614,7 +633,6 @@ function syncScreenDom(){
   }
 }
 
-/* ---- タッチ・入力配線（要素存在チェック付き） ---- */
 canvas.addEventListener('wheel',(e)=>{ if(screenState==='skilltree') SkillTree.onWheel(e); },{passive:false});
 canvas.addEventListener('mousedown',(e)=>{ if(screenState==='skilltree') SkillTree.onDown(e); });
 canvas.addEventListener('mousemove',(e)=>{ if(screenState==='skilltree') SkillTree.onMove(e); });
@@ -628,7 +646,6 @@ canvas.addEventListener('click',(e)=>{
   SkillTree.handleTap(e.clientX-rect.left, e.clientY-rect.top);
 });
 
-/* ---- ポーズ機能 ---- */
 function togglePause(){
   if(!game || screenState!=='game') return;
   game.paused=!game.paused;
@@ -636,19 +653,16 @@ function togglePause(){
   if(pauseScreen) pauseScreen.classList.toggle('hidden', !game.paused);
 }
 
-/* ---- COREモーダル ---- */
 function closeCoreModal(){
   const el=document.getElementById('coreModal'); if(el) el.classList.add('hidden');
 }
 
-/* ---- ボタンイベント（null安全登録） ---- */
 function on(id,ev,fn){ const el=document.getElementById(id); if(el) el.addEventListener(ev,fn); }
 function ensureAudio(){ AudioEngine.init(); }
 
 on('pauseBtn','click',()=>{ AudioEngine.SE.click(); togglePause(); });
 on('btnResume','click',()=>{ AudioEngine.SE.click(); togglePause(); });
 
-/* main.js（差分：ポーズ画面に「リタイア」機能を追加） */
 on('btnRetire','click',()=>{
   AudioEngine.SE.click();
   const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
@@ -707,6 +721,5 @@ on('seVol','input',(e)=>{ AudioEngine.setVol(gameData.settings.bgm,e.target.valu
   const seEl=document.getElementById('seVol'); if(seEl) seEl.value=Math.round((gameData.settings.se||0.7)*100);
 })();
 
-/* ---- 起動時: 必ずタイトル画面(画面1)を表示。セーブ有無は問わない ---- */
 screenState='title'; previousScreen='title';
 syncScreenDom();
