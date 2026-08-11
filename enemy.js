@@ -131,70 +131,122 @@ function drawTelegraphs(){
 function initTransformState(b){
   b.transformed=false;
   b.transforming=false;
-  b.transformPhase=null; /* 'zoomin' -> 'freeze' -> 'shake' -> 'flash' -> 'post' -> 'zoomout' */
+  b.transformPhase=null;
   b.transformTimer=0;
-  b.pendingTransformCheck=false; /* 攻撃パターン完了直後にチェックするフラグ */
+  b.pendingTransformCheck=false;
 }
 
 function checkTransformTrigger(b){
   if(b.transformed || b.transforming) return;
-  if(b.hp<=0) return; /* 変身前に死亡している場合は変身しない */
+  if(b.hp<=0) return;
   if(b.hp/b.maxHp<=0.5){
     startTransform(b);
   }
 }
 
+/* ---- 変身シーケンス: 指定順序を厳密固定 ----
+   zoomin(ズームイン) → morph(六芒星への幾何拡張) → flicker(スパーク+不規則点滅) →
+   blackout(3秒間灰色暗転) → flash(ヴォンッ！赤化) → post(2秒静止) → zoomout(復帰)
+*/
 function startTransform(b){
   b.transforming=true;
   b.transformPhase='zoomin';
   b.transformTimer=0;
+  b.morphProgress=0;
   game.cameraZoom={active:true,target:b,scale:1,phase:'zoomin'};
   game.playerFrozen=true;
-  /* 飛翔中の自弾（矢・魔法弾等）を無効化してすり抜けさせる */
+  game.player.invuln=999;
+  game.bullets=game.bullets.filter(bl=>bl.owner!=='enemy');
   game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
+}
+
+function applyFormChange(b){
+  b.formTier=2;
+  if(b.type==='tank'){ b.shape='heptagon'; b.color='#ff2b4d'; }
+  else if(b.type==='fortress'){ b.shape='hexagram'; b.color='#ffbe0b'; }
 }
 
 function updateTransform(b,dt){
   if(!b.transforming) return;
   b.transformTimer+=dt;
   const isFortress=b.type==='fortress';
-  const zoomInDur=0.8;
-  const freezeDur= isFortress? 1.5 : (b.type==='tank'?5:2.5);
-  const shakeDur= isFortress? 3.0 : (b.type==='tank'?4:2);
-  const flashDur= isFortress? 0.2 : 0.4;
-  const postDur= isFortress? 2.0 : 0;
-  const zoomOutDur=0.8;
+
+  if(!isFortress){
+    /* Wave10ボス（既存フロー維持） */
+    const zoomInDur=0.8, freezeDur=5, shakeDur=4, flashDur=0.4, zoomOutDur=0.8;
+    if(b.transformPhase==='zoomin'){
+      game.cameraZoom.scale=1+(b.transformTimer/zoomInDur)*0.8;
+      if(b.transformTimer>=zoomInDur){ b.transformPhase='freeze'; b.transformTimer=0; }
+    } else if(b.transformPhase==='freeze'){
+      if(b.transformTimer>=freezeDur){ b.transformPhase='shake'; b.transformTimer=0; AudioEngine.SE.transformRumble(); }
+    } else if(b.transformPhase==='shake'){
+      b.shakeOffsetX=(Math.random()-0.5)*10; b.shakeOffsetY=(Math.random()-0.5)*10;
+      if(b.transformTimer>=shakeDur){ b.transformPhase='flash'; b.transformTimer=0; b.shakeOffsetX=0; b.shakeOffsetY=0; applyFormChange(b); AudioEngine.SE.transformFlash(); }
+    } else if(b.transformPhase==='flash'){
+      b.flashAlpha=Math.max(0,1-(b.transformTimer/flashDur));
+      if(b.transformTimer>=flashDur){ b.transformPhase='zoomout'; b.transformTimer=0; }
+    } else if(b.transformPhase==='zoomout'){
+      game.cameraZoom.scale=1.8-((b.transformTimer/zoomOutDur)*0.8);
+      if(b.transformTimer>=zoomOutDur){
+        b.transforming=false; b.transformed=true;
+        game.cameraZoom={active:false,target:null,scale:1,phase:null};
+        game.playerFrozen=false; game.player.invuln=0;
+        game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
+      }
+    }
+    return;
+  }
+
+  /* Wave20（fortress）: 指定順序を厳密固定 */
+  const zoomInDur=0.8, morphDur=1.2, flickerDur=1.6, blackoutDur=3.0, flashDur=0.3, postDur=2.0, zoomOutDur=0.8;
 
   if(b.transformPhase==='zoomin'){
-    game.cameraZoom.scale=1+ (b.transformTimer/zoomInDur)*0.8;
-    if(b.transformTimer>=zoomInDur){ b.transformPhase='freeze'; b.transformTimer=0; if(isFortress) AudioEngine.SE.transformSpark(); }
+    game.cameraZoom.scale=1+(b.transformTimer/zoomInDur)*0.8;
+    if(b.transformTimer>=zoomInDur){ b.transformPhase='morph'; b.transformTimer=0; }
   }
-  else if(b.transformPhase==='freeze'){
-    if(isFortress && Math.random()<0.3) AudioEngine.SE.transformSpark();
-    if(b.transformTimer>=freezeDur){
-      b.transformPhase='shake'; b.transformTimer=0;
-      if(isFortress){ b.color='#3a3f58'; } else { AudioEngine.SE.transformRumble(); }
+  else if(b.transformPhase==='morph'){
+    /* 三角形→六芒星への幾何拡張（各辺中央から三角が競り出す進行度） */
+    b.morphProgress=Math.min(1,b.transformTimer/morphDur);
+    if(b.transformTimer>=morphDur){
+      b.morphProgress=1;
+      b.shape='hexagram'; /* 形状確定後に点滅フェーズへ */
+      b.transformPhase='flicker'; b.transformTimer=0;
+      b.flickerColor='#ffbe0b';
     }
   }
-  else if(b.transformPhase==='shake'){
-    b.shakeOffsetX=(Math.random()-0.5)*10;
-    b.shakeOffsetY=(Math.random()-0.5)*10;
-    if(b.transformTimer>=shakeDur){
+  else if(b.transformPhase==='flicker'){
+    /* ジッ、ジッ、ジジジ…不規則点滅（ネオンイエロー⇄灰色） */
+    if(Math.random()<0.35){ AudioEngine.SE.transformSpark(); }
+    b.color = Math.random()<0.5 ? '#ffbe0b' : '#5a6072';
+    if(b.transformTimer>=flickerDur){
+      b.transformPhase='blackout'; b.transformTimer=0;
+      b.color='#3a3f58';
+    }
+  }
+  else if(b.transformPhase==='blackout'){
+    /* 3秒間完全な灰色に暗転 */
+    b.color='#3a3f58';
+    if(b.transformTimer>=blackoutDur){
+      applyFormChange(b); /* formTier=2, colorをyellow初期値へ（直後にflashで赤へ差し替え） */
+      b.color='#3a3f58';
       b.transformPhase='flash'; b.transformTimer=0;
-      b.shakeOffsetX=0; b.shakeOffsetY=0;
-      applyFormChange(b);
-      if(isFortress) AudioEngine.SE.transformDeepImpact(); else AudioEngine.SE.transformFlash();
+      AudioEngine.SE.transformDeepImpact(); /* ヴォンッ！ */
     }
   }
   else if(b.transformPhase==='flash'){
+    /* ヴォンッ！と共に鮮やかなネオンレッドへ変化 */
+    b.color='#ff2b4d';
     b.flashAlpha=Math.max(0,1-(b.transformTimer/flashDur));
     if(b.transformTimer>=flashDur){
-      b.transformPhase= isFortress? 'post' : 'zoomout';
-      b.transformTimer=0;
+      b.transformPhase='post'; b.transformTimer=0;
     }
   }
   else if(b.transformPhase==='post'){
-    if(b.transformTimer>=postDur){ b.transformPhase='zoomout'; b.transformTimer=0; }
+    /* 2秒間静止 */
+    b.color='#ff2b4d';
+    if(b.transformTimer>=postDur){
+      b.transformPhase='zoomout'; b.transformTimer=0;
+    }
   }
   else if(b.transformPhase==='zoomout'){
     game.cameraZoom.scale=1.8-((b.transformTimer/zoomOutDur)*0.8);
@@ -203,27 +255,17 @@ function updateTransform(b,dt){
       game.cameraZoom={active:false,target:null,scale:1,phase:null};
       game.playerFrozen=false; game.player.invuln=0;
       game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
+      b.cycleState='cooldown'; b.cycleTimer=7;
     }
   }
 }
 
-/* 形態変化: HPは変更せず（第1形態HPをそのまま継続）、見た目・攻撃パターンのみ切替 */
-function applyFormChange(b){
-  b.formTier=2;
-  if(b.type==='tank'){
-    b.shape='heptagon'; b.color='#ff2b4d';
-  } else if(b.type==='fortress'){
-    b.shape='hexagram'; b.color='#ff2b4d';
-    b.turnState='cooldown'; b.turnCdTimer=7;
-  }
-}
-
-/* ---- 出現ドロップイン処理: tank/fortress 共通で使用する共通エントランス関数 ---- */
+/* ---- 出現ドロップイン処理: tank 共通で使用するエントランス関数 ---- */
 function updateBossEntrance(b,dt){
   if(b.y<180 && (b.entranceTimer||0)<1.2){
     b.entranceTimer=(b.entranceTimer||0)+dt;
     b.y+=120*dt;
-    return true; /* エントランス中はtrueを返し、呼び出し側で通常処理をスキップ */
+    return true;
   }
   return false;
 }
@@ -299,27 +341,76 @@ function updateBossTank(b,dt){
   if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(40+Math.floor(Math.random()*11));
 }
 
-/* ---- fortress更新 ---- */
+/* 入場: 上部中央から画面中央まで移動、到達後は完全固定 */
+function updateFortressEntrance(b,dt){
+  if(b.entered) return false;
+  const targetX=W/2, targetY=H*0.32;
+  const d=dist(b.x,b.y,targetX,targetY);
+  if(d<4){ b.x=targetX; b.y=targetY; b.fixedX=targetX; b.fixedY=targetY; b.entered=true; return false; }
+  const ang=Math.atan2(targetY-b.y,targetX-b.x);
+  b.x+=Math.cos(ang)*160*dt; b.y+=Math.sin(ang)*160*dt;
+  return true;
+}
+
+/* Wave20 AI完全上書き: 移動AI廃止、座標完全固定、20秒攻撃ターン⇄7秒大CDの厳密タイムライン */
 function updateBossFortress(b,dt){
   const p=game.player;
-  if(updateBossEntrance(b,dt)) return;
+  if(updateFortressEntrance(b,dt)) return;
   if(b.transforming){ updateTransform(b,dt); return; }
-  if(!b.turnState){ b.turnState='cooldown'; b.turnCdTimer=7; }
-  b.x=b.fixedX||W/2; b.y=Math.min(b.y,b.fixedY||160);
+  b.x=b.fixedX; b.y=b.fixedY; /* 座標完全固定・移動AIなし */
 
-  if(b.turnState==='cooldown'){
-    b.turnCdTimer-=dt;
-    b.rotateAngle=(b.rotateAngle||0)+dt*2.4;
-    if(b.turnCdTimer<=0){ b.rotateAngle=0; b.turnState='attack'; startFortressAttack(b); }
+  if(b.cycleState==='cooldown'){
+    b.cycleTimer-=dt;
+    b.rotateAngle=(b.rotateAngle||0)+dt*2.2;
+    if(b.cycleTimer<=0){
+      b.rotateAngle=0;
+      b.cycleState='attackturn';
+      b.cycleTimer=20;
+      b.attackSubState='pending';
+      b.attackSubTimer=0;
+      b.attackCount=0;
+      fortressStartNextAttack(b);
+    }
     if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*0.5*dt);
     return;
   }
-  b.rotateAngle=0;
-  updateTelegraph(b,dt);
-  updateFortressLaser(b,dt);
+
+  if(b.cycleState==='attackturn'){
+    b.rotateAngle=0;
+    b.cycleTimer-=dt;
+    /* 20秒経過時、攻撃モーション中なら終わるまで待機してから大CDへ */
+    if(b.cycleTimer<=0 && b.attackSubState==='idle'){
+      b.cycleState='cooldown';
+      b.cycleTimer=7;
+    }
+    updateTelegraph(b,dt);
+    updateFortressLaser(b,dt);
+    if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*0.5*dt);
+  }
 }
 
-function startFortressAttack(b){
+/* 攻撃発動→小CD1秒→攻撃発動→小CD1秒→攻撃発動→中CD3秒 を1サイクルとして20秒間ループ */
+function fortressStartNextAttack(b){
+  b.attackSubState='firing';
+  fortressFireOne(b,()=>{
+    b.attackCount++;
+    let waitMs;
+    if(b.attackCount===1||b.attackCount===2) waitMs=1000;
+    else { waitMs=3000; b.attackCount=0; }
+    b.attackSubState='waiting';
+    setTimeout(()=>{
+      if(!b || b.dead) return;
+      if(b.cycleTimer<=0 && b.attackCount===0){
+        b.attackSubState='idle';
+        b.cycleState='cooldown'; b.cycleTimer=7;
+        return;
+      }
+      if(b.cycleState==='attackturn'){ fortressStartNextAttack(b); }
+    },waitMs);
+  });
+}
+
+function fortressFireOne(b,onDone){
   const p=game.player;
   const options = b.formTier===2 ? ['quantum','gravity','laser'] : ['quantum','gravity'];
   const canLaser = b.formTier===2 && b.hp/b.maxHp<=0.5;
@@ -332,7 +423,7 @@ function startFortressAttack(b){
       AudioEngine.SE.bossShoot();
       const a2=Math.atan2(p.y-b.y,p.x-b.x);
       game.bullets.push({x:b.x,y:b.y,vx:Math.cos(a2)*220,vy:Math.sin(a2)*220,r:22,dmg:50+Math.floor(Math.random()*21),owner:'enemy',color:'#f4ff00'});
-      endFortressAttack(b);
+      onDone();
     });
   } else if(choice==='gravity'){
     startTelegraph(b,{shape:'circle',x:b.x,y:b.y,r:260},0.6,()=>{
@@ -344,25 +435,17 @@ function startFortressAttack(b){
         shots++;
         const ang=Math.atan2(p.y-b.y,p.x-b.x);
         game.bullets.push({x:b.x,y:b.y,vx:Math.cos(ang)*240,vy:Math.sin(ang)*240,r:7,dmg:16,owner:'enemy',color:'#ffbe0b'});
-        if(shots<3) setTimeout(fire,260); else endFortressAttack(b);
+        if(shots<3) setTimeout(fire,260); else onDone();
       };
       fire();
     });
   } else {
-    startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+Math.cos(Math.atan2(p.y-b.y,p.x-b.x))*900,y2:b.y+Math.sin(Math.atan2(p.y-b.y,p.x-b.x))*900,width:30},1.0,()=>{
-      b.laserActive=true; b.laserTimer=3.0;
+    const ang0=Math.atan2(p.y-b.y,p.x-b.x);
+    startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:b.x+Math.cos(ang0)*900,y2:b.y+Math.sin(ang0)*900,width:30},1.0,()=>{
+      b.laserActive=true; b.laserTimer=3.0; b.laserOnDone=onDone;
       AudioEngine.SE.laser();
     });
   }
-}
-
-function endFortressAttack(b){
-  b.turnState='cooldown'; b.turnCdTimer=7;
-  checkTransformTrigger(b);
-}
-
-function scheduleNextFortressAttack(b){
-  setTimeout(()=>{ if(b.turnState==='attack') startFortressAttack(b); },1000);
 }
 
 function updateFortressLaser(b,dt){
@@ -375,7 +458,62 @@ function updateFortressLaser(b,dt){
   if(pointToSegDist(p.x,p.y,b.x,b.y,ex,ey)<20) damagePlayer(6*dt);
   screenShake(4);
   b.laserTimer-=dt;
-  if(b.laserTimer<=0){ b.laserActive=false; endFortressAttack(b); }
+  if(b.laserTimer<=0){
+    b.laserActive=false;
+    const cb=b.laserOnDone; b.laserOnDone=null;
+    if(cb) cb();
+  }
+}
+
+/* ---- 六芒星（✡）の正しい幾何描画: 正三角形2つの重ね合わせ ---- */
+function drawFortressShape(b){
+  ctx.save();
+  const flash=b.hitFlash>0?'#fff':b.color;
+  const ox=b.shakeOffsetX||0, oy=b.shakeOffsetY||0;
+  ctx.translate(ox,oy);
+  ctx.shadowColor=b.color; ctx.shadowBlur=24; ctx.fillStyle=flash; ctx.strokeStyle=b.color; ctx.lineWidth=3;
+
+  if(b.shape==='hexagram' || (b.transforming && b.transformPhase==='morph')){
+    const morph=b.transforming? (b.morphProgress||0) : 1;
+    /* 基本正三角形 */
+    drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,6);
+    ctx.fill(); ctx.stroke();
+    if(morph>0){
+      /* 逆三角形をmorph進行度に応じて重ね、正六芒星を形成 */
+      ctx.save();
+      ctx.globalAlpha=Math.min(1,morph);
+      drawRoundedPolygon(b.x,b.y,b.r*morph,3,Math.PI/2,6);
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+  } else if(b.shape==='triangle'){
+    drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,8);
+    ctx.fill(); ctx.stroke();
+  } else if(b.shape==='pentagon'){
+    drawRoundedPolygon(b.x,b.y,b.r,5,-Math.PI/2,8);
+    ctx.fill(); ctx.stroke();
+  } else if(b.shape==='heptagon'){
+    drawRoundedPolygon(b.x,b.y,b.r,7,-Math.PI/2,8);
+    ctx.fill(); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  }
+  ctx.translate(-ox,-oy);
+  ctx.restore();
+
+  /* 大クールダウン中の360度回転演出（見た目のみ回転を重ねて表現） */
+  if(b.cycleState==='cooldown' && (b.rotateAngle||0)>0){
+    ctx.save();
+    ctx.translate(b.x,b.y); ctx.rotate(b.rotateAngle);
+    ctx.strokeStyle='rgba(255,190,11,0.3)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(-b.r-10,0); ctx.lineTo(b.r+10,0); ctx.stroke();
+    ctx.restore();
+  }
+
+  if(b.transformPhase==='flash' && b.flashAlpha>0){
+    ctx.save(); ctx.globalAlpha=b.flashAlpha; ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r*1.4,0,Math.PI*2); ctx.fill(); ctx.restore();
+  }
 }
 
 /* ===================== BOSSES ===================== */
@@ -393,8 +531,10 @@ function createBoss(wave){
   }
   if(type==='fortress'){
     const boss=Object.assign(base,{name:'砲撃要塞',color:'#ffbe0b',shape:'triangle',r:64*Math.min(1.4,scale),
-      hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:0,keepDist:0,formTier:1,
-      turnState:'cooldown',turnTimer:0,turnCdTimer:7,entranceTimer:0,fixedX:W/2,fixedY:160,rotateAngle:0});
+      hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:0,formTier:1,
+      fixedX:W/2,fixedY:180,entered:false,entranceTimer:0,
+      cycleState:'cooldown', cycleTimer:7, attackSubState:null, attackSubTimer:0, attackCount:0,
+      rotateAngle:0});
     initTransformState(boss);
     return boss;
   }
@@ -518,6 +658,11 @@ function splitBoss(b){
 }
 
 function drawBossShape(b){
+  if(b.type==='fortress'){
+    drawFortressShape(b);
+    return;
+  }
+
   ctx.save();
   const flash=b.hitFlash>0?'#fff':b.color;
   const ox=b.shakeOffsetX||0, oy=b.shakeOffsetY||0;
