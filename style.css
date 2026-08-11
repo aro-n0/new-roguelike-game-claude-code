@@ -144,6 +144,13 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .legend-btn:disabled{ opacity:0.4; cursor:not-allowed; }
 .legend-cd{ font-size:10px; color:var(--neon-yellow); }
 
+/* Legend能力UI */
+#legendBar{ position:absolute; bottom:16px; left:16px; z-index:24; display:flex; gap:8px; pointer-events:none; }
+.legend-icon{ position:relative; width:48px; height:48px; border-radius:10px; border:2px solid var(--neon-magenta); background:rgba(10,12,24,0.85); overflow:hidden; box-shadow:0 0 10px rgba(255,0,229,0.4); }
+.legend-icon .li-glyph{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:22px; }
+.legend-icon .li-curtain{ position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); transition:height 0.1s linear; }
+.legend-icon .li-cd-text{ position:absolute; bottom:1px; right:2px; font-size:9px; color:#fff; text-shadow:0 0 4px #000; }
+
 /* 通貨アニメーション */
 .global-currency-bar.pop, .st-currency-bar.pop{ animation:currencyPop 0.35s ease; }
 @keyframes currencyPop{
@@ -163,6 +170,12 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 /* CORE強調色 */
 .core-highlight-yellow span:last-child{ color:#FFE600 !important; text-shadow:0 0 8px #FFE600; }
 .core-highlight-cyan span:last-child{ color:#00F0FF !important; text-shadow:0 0 8px #00F0FF; }
+
+/* ---- バトル限定表示制御 ---- */
+#pauseBtn, #waveSkipBtn{ display:none; }
+#hud:not(.hidden) ~ #pauseBtn, #hud:not(.hidden) ~ #waveSkipBtn{ display:flex; }
+.battle-only{ display:none; }
+body.in-battle .battle-only{ display:flex; }
 
 /* ---- ポーズ ---- */
 #pauseBtn{ position:absolute; top:14px; left:14px; z-index:24; pointer-events:auto; background:var(--panel-bg); border:1.5px solid var(--neon-cyan); color:var(--neon-cyan); border-radius:8px; padding:6px 12px; font-family:inherit; font-size:14px; cursor:pointer; }
