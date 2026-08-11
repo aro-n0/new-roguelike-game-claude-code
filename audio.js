@@ -73,6 +73,17 @@ const AudioEngine=(function(){
     astraArrow(){ tone({freq:300,slideTo:2000,dur:0.5,type:'sawtooth',gain:0.25}); noise({dur:0.3,gain:0.2,filterFreq:3000,delay:0.1}); },
     mothershipLaser(){ tone({freq:150,slideTo:1800,dur:0.35,type:'sawtooth',gain:0.2}); }
   };
+
+  Object.assign(SE,{
+    transformRumble(){ tone({freq:45,dur:4.0,type:'sawtooth',gain:0.3}); noise({dur:4.0,gain:0.22,filterFreq:150}); },
+    transformFlash(){ tone({freq:800,slideTo:1600,dur:0.25,type:'sine',gain:0.35}); noise({dur:0.2,gain:0.3,filterFreq:4000}); },
+    transformSpark(){ noise({dur:0.06,gain:0.2,filterFreq:5000}); tone({freq:2000,slideTo:200,dur:0.08,type:'square',gain:0.15}); },
+    transformDeepImpact(){ tone({freq:60,slideTo:20,dur:0.6,type:'sawtooth',gain:0.4}); noise({dur:0.4,gain:0.3,filterFreq:200}); },
+    legendReady(){ tone({freq:1600,slideTo:2400,dur:0.15,type:'square',gain:0.22}); tone({freq:2400,dur:0.08,type:'sine',gain:0.2,delay:0.05}); },
+    astraFire(){ tone({freq:70,slideTo:40,dur:0.6,type:'sawtooth',gain:0.35}); noise({dur:0.3,gain:0.2,filterFreq:300}); },
+    lifedrainOn(){ tone({freq:90,slideTo:50,dur:0.5,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.18,filterFreq:250}); }
+  });
+
   function startBGM(boss){
     if(!ctx) return; stopBGM(); bossMode=!!boss;
     const baseFreqs = boss? [41,82,61] : [55,110,165];
