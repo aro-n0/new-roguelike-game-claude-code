@@ -1,4 +1,16 @@
-/* player.js（全文更新：矢のクリティカル判定修復、貫通を耐久値方式に統一、ボクサー+弓併用時の独立近接攻撃、グローブ1個描画） */
+/* player.js（全文更新：射程スケーリング(3倍〜7倍)、ライフドレイン近接HP吸収、drawPlayer内オーラ演出を追加統合） */
+
+/*
+  【skilltree.js 側の修正メモ】
+  computePlayerStats 内の bowSearchRadius 算出行を以下に差し替えてください。
+  --------------------------------------------------
+  const rangeLv=gameData.tokenLevels['t_range']||0;
+  const rangeMaxLv=t_range.maxLv;
+  const playerR=20;
+  build.bowSearchRadius = playerR*3 + (playerR*7-playerR*3)*Math.min(1,rangeLv/rangeMaxLv);
+  build.mageSearchRadius = build.bowSearchRadius;
+  --------------------------------------------------
+*/
 
 function makePlayer(){
   const {base,build}=computePlayerStats();
@@ -89,8 +101,15 @@ function updatePlayer(dt){
         }
         inRange.forEach(e=>{
           const crit=Math.random()<(p.base.crit+(p.build.boxerCritBonus||0));
-          damageTarget(e,dmg*(crit?p.base.critMult:1),crit);
+          const dmgDealt=dmg*(crit?p.base.critMult:1);
+          damageTarget(e,dmgDealt,crit);
           tryApplyStatus(e);
+          if(p.lifedrainActive){
+            const heal=dmgDealt*0.1;
+            p.hp+=heal;
+            if(p.hp>p.maxHp){ const overflow=p.hp-p.maxHp; p.maxHp+=overflow; }
+            spawnParticles(e.x,e.y,'#ff2b4d',6);
+          }
           if(p.base.knockback>0){
             const ang=Math.atan2(e.y-p.y,e.x-p.x);
             e.x+=Math.cos(ang)*p.base.knockback*0.12; e.y+=Math.sin(ang)*p.base.knockback*0.12;
@@ -108,7 +127,7 @@ function updatePlayer(dt){
     p.boltTimer=(p.boltTimer||0)-dt;
     if(p.boltTimer<=0 && targets.length>0){
       p.boltTimer=p.build.bowFireInterval||1.5;
-      const searchR=p.build.bowSearchRadius||(p.base.range*4);
+      const searchR=p.build.bowSearchRadius||(20*3);
       const inRange=targets.filter(e=>dist(e.x,e.y,p.x,p.y)<=searchR);
       const sorted=(inRange.length?inRange:targets).sort((a,b)=>dist(a.x,a.y,p.x,p.y)-dist(b.x,b.y,p.x,p.y));
       const n=Math.min(p.build.arrowCount||1, sorted.length);
@@ -322,6 +341,19 @@ function drawMothership(){
   ctx.restore();
 }
 
+/* drawLifedrainAura: ライフドレイン発動中の赤黒いオーラ描画 */
+function drawLifedrainAura(){
+  const p=game.player;
+  if(!p.lifedrainActive) return;
+  ctx.save();
+  const pulse=0.7+0.3*Math.sin(performance.now()/150);
+  ctx.globalAlpha=0.35*pulse;
+  ctx.fillStyle='#8a0022';
+  ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=20;
+  ctx.beginPath(); ctx.arc(p.x,p.y,p.r+16,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
 function drawPlayer(){
   const p=game.player;
   ctx.save();
@@ -361,6 +393,9 @@ function drawPlayer(){
     ctx.save(); ctx.shadowColor='#00fff2'; ctx.shadowBlur=10; ctx.fillStyle='#0a1830'; ctx.strokeStyle='#00fff2'; ctx.lineWidth=2;
     roundRectPath(ctx,dr.x-7,dr.y-7,14,14,4); ctx.fill(); ctx.stroke(); ctx.restore();
   });
+
+  /* ライフドレインオーラ描画 */
+  drawLifedrainAura();
 }
 
 function drawHexPath(cx,cy,r){
