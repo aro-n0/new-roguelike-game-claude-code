@@ -1,4 +1,4 @@
-/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映） */
+/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、浮遊テキストフェード削除確実化、fortress専用描画統合） */
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
@@ -200,6 +200,7 @@ function triggerGameClear(){
 function fmtTime(t){ return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0'); }
 function setText(id,val){ const el=document.getElementById(id); if(el) el.textContent=val; }
 
+/* updateVitalitySystems内: regenPopsの寿命管理をフェード＋確実削除に統一 */
 function updateVitalitySystems(dt){
   const p=game.player;
   const maxShield=3+(p.build.shieldMaxBonus||0);
@@ -221,23 +222,27 @@ function updateVitalitySystems(dt){
     p.regenTickTimer=(p.regenTickTimer===undefined?1:p.regenTickTimer)-dt;
     if(p.regenTickTimer<=0){
       p.regenTickTimer=1;
-      const healAmt=Math.round(p.base.regen+(p.build.regen||0)) || 5;
+      const healAmt=Math.round(p.base.regen+(p.build.regen||0))||5;
       p.hp=Math.min(p.maxHp,p.hp+healAmt);
+      game.regenPops=game.regenPops||[];
       game.regenPops.push({x:p.x,y:p.y-30,text:'+'+healAmt,life:1.0,maxLife:1.0,vy:-30});
       spawnParticles(p.x,p.y,'#39ff88',8);
     }
   }
-  game.regenPops.forEach(r=>{ r.y+=r.vy*dt; r.life-=dt; });
-  game.regenPops=game.regenPops.filter(r=>r.life>0);
+  game.regenPops=game.regenPops||[];
+  for(const r of game.regenPops){ r.y+=r.vy*dt; r.life-=dt; }
+  game.regenPops=game.regenPops.filter(r=>r.life>0); /* 1秒経過後に確実削除 */
 
+  /* HP50%回復アイテム（ボス撃破ドロップ）の当たり判定を確実に実行 */
+  game.healItems=game.healItems||[];
   for(const h of game.healItems){
     h.phase=(h.phase||0)+dt*3;
-    if(dist(h.x,h.y,p.x,p.y)<h.r+p.r+10){
+    if(!h.collected && dist(h.x,h.y,p.x,p.y)<(h.r||18)+p.r+8){
       h.collected=true;
       p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.5);
       AudioEngine.SE.chest();
       spawnParticles(h.x,h.y,'#39ff88',30);
-      game.regenPops.push({x:p.x,y:p.y-40,text:'+HP 50%',life:1.2,maxLife:1.2,vy:-30});
+      game.regenPops.push({x:p.x,y:p.y-40,text:'+HP 50%',life:1.0,maxLife:1.0,vy:-30});
     }
   }
   game.healItems=game.healItems.filter(h=>!h.collected);
@@ -332,8 +337,8 @@ function update(dt){
   const prevX=p.x, prevY=p.y;
   updatePlayer(dt);
   p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
+  updateVitalitySystems(dt); /* updateHUD手前で必ず呼び出し */
   updateLegendAbilities(dt);
-  renderLegendBar();
 
   game.swings.forEach(s=>s.life-=dt); game.swings=game.swings.filter(s=>s.life>0);
   game.lightnings.forEach(l=>l.life-=dt); game.lightnings=game.lightnings.filter(l=>l.life>0);
@@ -469,7 +474,8 @@ function render(){
   drawEnemies();
   if(game.bossActive && game.boss){
     drawTelegraphs();
-    if(game.boss.type==='tank'||game.boss.type==='fortress'){ drawBossShape(game.boss); }
+    if(game.boss.type==='tank'){ drawBossShape(game.boss); }
+    else if(game.boss.type==='fortress'){ drawFortressShape(game.boss); }
     else drawBoss();
   }
 
@@ -511,7 +517,8 @@ function render(){
     ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
   }
-  for(const r of game.regenPops){
+  /* render() 内、regenPops描画: フェードアウトのみで残存させない */
+  for(const r of (game.regenPops||[])){
     const a=Math.max(0,r.life/r.maxLife);
     ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#39ff88'; ctx.shadowColor='#39ff88'; ctx.shadowBlur=10;
     ctx.font='bold 15px Consolas'; ctx.textAlign='center'; ctx.fillText(r.text,r.x,r.y); ctx.restore();
@@ -537,6 +544,9 @@ function render(){
     ctx.fillText(cp.text,0,0);
     ctx.restore();
   }
+
+  /* render() 末尾で毎フレーム確実にLegendバーを更新（DOM要素のためcanvas描画順の影響を受けない） */
+  renderLegendBar();
 }
 
 function starIconHtml(){ return `<svg class="star-icon-svg" viewBox="0 0 100 140"><path d="M50 2 C54 2 56 6 58 14 L66 46 C82 48 96 50 98 54 C100 58 96 62 84 70 L64 84 C68 100 72 116 70 122 C68 128 62 128 50 118 C38 128 32 128 30 122 C28 116 32 100 36 84 L16 70 C4 62 0 58 2 54 C4 50 18 48 34 46 L42 14 C44 6 46 2 50 2 Z" fill="url(#starGrad)" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`; }
