@@ -131,14 +131,14 @@ function drawTelegraphs(){
 function initTransformState(b){
   b.transformed=false;
   b.transforming=false;
-  b.transformPhase=null; /* 'zoomin' -> 'freeze' -> 'shake' -> 'flash' -> 'zoomout' */
+  b.transformPhase=null; /* 'zoomin' -> 'freeze' -> 'shake' -> 'flash' -> 'post' -> 'zoomout' */
   b.transformTimer=0;
   b.pendingTransformCheck=false; /* 攻撃パターン完了直後にチェックするフラグ */
 }
 
 function checkTransformTrigger(b){
   if(b.transformed || b.transforming) return;
-  if(b.hp<=0) return; /* 変身前に死亡している場合は変身しない。既存の bossIsDefeated / endBoss が処理する */
+  if(b.hp<=0) return; /* 変身前に死亡している場合は変身しない */
   if(b.hp/b.maxHp<=0.5){
     startTransform(b);
   }
@@ -157,44 +157,51 @@ function startTransform(b){
 function updateTransform(b,dt){
   if(!b.transforming) return;
   b.transformTimer+=dt;
-  const zoomInDur=0.8, freezeDur=(b.type==='tank')?5:2.5, shakeDur=(b.type==='tank')?4:2, flashDur=0.4, zoomOutDur=0.8;
+  const isFortress=b.type==='fortress';
+  const zoomInDur=0.8;
+  const freezeDur= isFortress? 1.5 : (b.type==='tank'?5:2.5);
+  const shakeDur= isFortress? 3.0 : (b.type==='tank'?4:2);
+  const flashDur= isFortress? 0.2 : 0.4;
+  const postDur= isFortress? 2.0 : 0;
+  const zoomOutDur=0.8;
 
   if(b.transformPhase==='zoomin'){
     game.cameraZoom.scale=1+ (b.transformTimer/zoomInDur)*0.8;
-    if(b.transformTimer>=zoomInDur){ b.transformPhase='freeze'; b.transformTimer=0; }
+    if(b.transformTimer>=zoomInDur){ b.transformPhase='freeze'; b.transformTimer=0; if(isFortress) AudioEngine.SE.transformSpark(); }
   }
   else if(b.transformPhase==='freeze'){
+    if(isFortress && Math.random()<0.3) AudioEngine.SE.transformSpark();
     if(b.transformTimer>=freezeDur){
-      b.transformPhase='shake';
-      b.transformTimer=0;
-      AudioEngine.SE.transformRumble && AudioEngine.SE.transformRumble();
+      b.transformPhase='shake'; b.transformTimer=0;
+      if(isFortress){ b.color='#3a3f58'; } else { AudioEngine.SE.transformRumble(); }
     }
   }
   else if(b.transformPhase==='shake'){
     b.shakeOffsetX=(Math.random()-0.5)*10;
     b.shakeOffsetY=(Math.random()-0.5)*10;
     if(b.transformTimer>=shakeDur){
-      b.transformPhase='flash';
-      b.transformTimer=0;
+      b.transformPhase='flash'; b.transformTimer=0;
       b.shakeOffsetX=0; b.shakeOffsetY=0;
       applyFormChange(b);
-      AudioEngine.SE.transformFlash && AudioEngine.SE.transformFlash();
+      if(isFortress) AudioEngine.SE.transformDeepImpact(); else AudioEngine.SE.transformFlash();
     }
   }
   else if(b.transformPhase==='flash'){
     b.flashAlpha=Math.max(0,1-(b.transformTimer/flashDur));
     if(b.transformTimer>=flashDur){
-      b.transformPhase='zoomout';
+      b.transformPhase= isFortress? 'post' : 'zoomout';
       b.transformTimer=0;
     }
+  }
+  else if(b.transformPhase==='post'){
+    if(b.transformTimer>=postDur){ b.transformPhase='zoomout'; b.transformTimer=0; }
   }
   else if(b.transformPhase==='zoomout'){
     game.cameraZoom.scale=1.8-((b.transformTimer/zoomOutDur)*0.8);
     if(b.transformTimer>=zoomOutDur){
-      b.transforming=false;
-      b.transformed=true;
+      b.transforming=false; b.transformed=true;
       game.cameraZoom={active:false,target:null,scale:1,phase:null};
-      game.playerFrozen=false;
+      game.playerFrozen=false; game.player.invuln=0;
       game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
     }
   }
@@ -204,18 +211,14 @@ function updateTransform(b,dt){
 function applyFormChange(b){
   b.formTier=2;
   if(b.type==='tank'){
-    b.shape='heptagon';
-    b.color='#ff2b4d';
-    /* HPはそのまま維持（変身直前の残量から継続） */
+    b.shape='heptagon'; b.color='#ff2b4d';
   } else if(b.type==='fortress'){
-    b.shape='hexagram';
-    b.color='#f4ff00';
-    b.turnState='cooldown';
-    b.turnCdTimer=7;
+    b.shape='hexagram'; b.color='#ff2b4d';
+    b.turnState='cooldown'; b.turnCdTimer=7;
   }
 }
 
-/* ---- 出現ドロップイン処理の欠落修復: tank/fortress 共通で使用する共通エントランス関数 ---- */
+/* ---- 出現ドロップイン処理: tank/fortress 共通で使用する共通エントランス関数 ---- */
 function updateBossEntrance(b,dt){
   if(b.y<180 && (b.entranceTimer||0)<1.2){
     b.entranceTimer=(b.entranceTimer||0)+dt;
@@ -235,7 +238,7 @@ function updateBossTank(b,dt){
     if(b.dashTimer<=0){
       b.dashTimer= b.formTier===2?4.0:4.5;
       if(b.formTier===2){
-        /* 第2形態: 予測ラインを発射時点で確定させ、そのラインに沿って正確に突進する（プレイヤーを直接追尾しない） */
+        /* 第2形態: 予測ラインを発射時点で確定させ、そのラインに沿って正確に突進する */
         const d=dist(b.x,b.y,p.x,p.y)||1;
         const lockedDX=(p.x-b.x)/d, lockedDY=(p.y-b.y)/d;
         const dashDist=500*2;
@@ -247,7 +250,7 @@ function updateBossTank(b,dt){
           checkTransformTrigger(b);
         });
       } else {
-        /* 第1形態: 予測表示のみで、突進発動時は改めてプレイヤーの位置へ向けて突進する（追尾的な前兆） */
+        /* 第1形態: 予測表示のみで、突進発動時は改めてプレイヤーの位置へ向けて突進する */
         startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:p.x,y2:p.y,width:b.r*2},0.6,()=>{
           const dd=dist(b.x,b.y,p.x,p.y)||1;
           b.mode='dash';
@@ -302,16 +305,18 @@ function updateBossFortress(b,dt){
   if(updateBossEntrance(b,dt)) return;
   if(b.transforming){ updateTransform(b,dt); return; }
   if(!b.turnState){ b.turnState='cooldown'; b.turnCdTimer=7; }
+  b.x=b.fixedX||W/2; b.y=Math.min(b.y,b.fixedY||160);
 
   if(b.turnState==='cooldown'){
     b.turnCdTimer-=dt;
-    const d=dist(b.x,b.y,p.x,p.y);
-    if(d>b.keepDist) moveToward(b,p.x,p.y,dt,b.spd*0.6);
-    if(b.turnCdTimer<=0){ b.turnState='attack'; startFortressAttack(b); }
+    b.rotateAngle=(b.rotateAngle||0)+dt*2.4;
+    if(b.turnCdTimer<=0){ b.rotateAngle=0; b.turnState='attack'; startFortressAttack(b); }
     if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*0.5*dt);
     return;
   }
+  b.rotateAngle=0;
   updateTelegraph(b,dt);
+  updateFortressLaser(b,dt);
 }
 
 function startFortressAttack(b){
@@ -356,6 +361,10 @@ function endFortressAttack(b){
   checkTransformTrigger(b);
 }
 
+function scheduleNextFortressAttack(b){
+  setTimeout(()=>{ if(b.turnState==='attack') startFortressAttack(b); },1000);
+}
+
 function updateFortressLaser(b,dt){
   if(!b.laserActive) return;
   const p=game.player;
@@ -364,6 +373,7 @@ function updateFortressLaser(b,dt){
   const ex=b.x+Math.cos(b.laserAngle)*900, ey=b.y+Math.sin(b.laserAngle)*900;
   game.lightnings.push({type:'laser',x1:b.x,y1:b.y,x2:ex,y2:ey,life:0.05,maxLife:0.05});
   if(pointToSegDist(p.x,p.y,b.x,b.y,ex,ey)<20) damagePlayer(6*dt);
+  screenShake(4);
   b.laserTimer-=dt;
   if(b.laserTimer<=0){ b.laserActive=false; endFortressAttack(b); }
 }
@@ -383,8 +393,8 @@ function createBoss(wave){
   }
   if(type==='fortress'){
     const boss=Object.assign(base,{name:'砲撃要塞',color:'#ffbe0b',shape:'triangle',r:64*Math.min(1.4,scale),
-      hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:26,burstTimer:2.4,keepDist:320,formTier:1,
-      turnState:'cooldown',turnTimer:0,turnCdTimer:7,entranceTimer:0});
+      hp:1000*scale,maxHp:1000*scale,dmg:14*scale,spd:0,keepDist:0,formTier:1,
+      turnState:'cooldown',turnTimer:0,turnCdTimer:7,entranceTimer:0,fixedX:W/2,fixedY:160,rotateAngle:0});
     initTransformState(boss);
     return boss;
   }
@@ -430,7 +440,6 @@ function updateBoss(dt){
   }
   else if(b.type==='fortress'){
     updateBossFortress(b,dt);
-    updateFortressLaser(b,dt);
   }
   else if(b.type==='splitter'){
     if(b.hp>0) moveToward(b,p.x,p.y,dt,b.spd);
@@ -512,19 +521,21 @@ function drawBossShape(b){
   ctx.save();
   const flash=b.hitFlash>0?'#fff':b.color;
   const ox=b.shakeOffsetX||0, oy=b.shakeOffsetY||0;
-  ctx.translate(ox,oy);
+  ctx.translate(b.x + ox, b.y + oy);
+  if(b.rotateAngle) ctx.rotate(b.rotateAngle);
+
   ctx.shadowColor=b.color; ctx.shadowBlur=24; ctx.fillStyle=flash; ctx.strokeStyle=b.color; ctx.lineWidth=3;
-  if(b.shape==='pentagon') drawRoundedPolygon(b.x,b.y,b.r,5,-Math.PI/2,8);
-  else if(b.shape==='heptagon') drawRoundedPolygon(b.x,b.y,b.r,7,-Math.PI/2,8);
-  else if(b.shape==='triangle') drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,8);
+  if(b.shape==='pentagon') drawRoundedPolygon(0,0,b.r,5,-Math.PI/2,8);
+  else if(b.shape==='heptagon') drawRoundedPolygon(0,0,b.r,7,-Math.PI/2,8);
+  else if(b.shape==='triangle') drawRoundedPolygon(0,0,b.r,3,-Math.PI/2,8);
   else if(b.shape==='hexagram'){
-    drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,6);
-    drawRoundedPolygon(b.x,b.y,b.r,3,Math.PI/2,6);
+    drawRoundedPolygon(0,0,b.r,3,-Math.PI/2,6);
+    drawRoundedPolygon(0,0,b.r,3,Math.PI/2,6);
   }
-  else { ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); }
+  else { ctx.beginPath(); ctx.arc(0,0,b.r,0,Math.PI*2); }
   ctx.fill(); ctx.stroke();
-  ctx.translate(-ox,-oy);
   ctx.restore();
+
   if(b.transformPhase==='flash' && b.flashAlpha>0){
     ctx.save(); ctx.globalAlpha=b.flashAlpha; ctx.fillStyle='#fff';
     ctx.beginPath(); ctx.arc(b.x,b.y,b.r*1.4,0,Math.PI*2); ctx.fill(); ctx.restore();
