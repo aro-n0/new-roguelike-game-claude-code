@@ -254,13 +254,13 @@ const vitalityBranch=(function(){
 
   const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
   const legend={id:'vt_legend',costType:'star',scope:'slot',parent:'vt_capstone',tier:'legend',
-    name:'ライフドレイン（吸血）',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
+    name:'ライフドレイン（吸血）',icon:'🩸',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
     req:{id:'vt_capstone',lvl:1},
     apply:(b,l)=>{b.legendVitality=true;},line2:'自身のHPを消費し周囲から吸血',line3:()=>'大ダメージと引き換えに大幅回復'};
 
   const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
   const ultimate={id:'vt_ultimate',costType:'token',scope:'slot',parent:'vt_capstone',tier:'ultimate',
-    name:'不死身の肉体',icon:'✝',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
+    name:'不死身の肉体',icon:'🫀',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
     req:{id:'vt_capstone',lvl:1},
     apply:(b,l)=>{b.vitHp+=80;b.dmgReductionMult*=1.3;},line2:'HPと軽減率が最大まで強化される',line3:()=>'最大HP+80 倍率x1.3'};
 
@@ -299,7 +299,7 @@ const bowBranch=(function(){
 
   const gravP=organicPlace(barbP,-8,120,150,tierRadius('upgrade'));
   const gravBolt={id:'bo_gravbolt',costType:'star',scope:'slot',parent:'bo_dmg',tier:'upgrade',
-    name:'過重力ボルト',icon:'➶',maxLv:1,baseCost:1,growth:1,x:gravP.x,y:gravP.y,
+    name:'過重力ボルト',icon:'⯍',maxLv:1,baseCost:1,growth:1,x:gravP.x,y:gravP.y,
     req:{id:'bo_dmg',lvl:BARB_MAXLV},
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.7;},
     line2:'矢の攻撃倍率がさらに大幅上昇',line3:()=>'攻撃倍率+70%（合計+250%）'};
@@ -319,26 +319,26 @@ const bowBranch=(function(){
   const rapidP=organicPlace(precisionP,40,130,160,tierRadius('upgrade'));
   const RAPID_MAXLV=7;
   const rapid={id:'bo_speed',costType:'token',scope:'slot',parent:'bo_precision',tier:'upgrade',
-    name:'速射訓練',icon:'➶',maxLv:RAPID_MAXLV,baseCost:400,growth:growthFor(RAPID_MAXLV,400,11000),
+    name:'速射訓練',icon:'⚡',maxLv:RAPID_MAXLV,baseCost:400,growth:growthFor(RAPID_MAXLV,400,11000),
     x:rapidP.x,y:rapidP.y,apply:(b,l)=>{b.bowSpeedReduce=(b.bowSpeedReduce||0)+0.1*l;},
     line2:'矢の発射間隔がさらに短縮',line3:l=>`発射間隔-${(0.1*l).toFixed(1)}秒`};
 
   const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'));
   const capstone={id:'bo_capstone',costType:'star',scope:'slot',parent:'bo_multishot',tier:'capstone',
-    name:'乱れ撃ち',icon:'➹',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
+    name:'乱れ撃ち',icon:'⯍',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
     derivReq:{ids:['bo_multishot','bo_precision'],needCount:2},
     apply:(b,l)=>{b.bowDmgMult=(b.bowDmgMult||1)+0.6;},
     line2:'弓の全ダメージが大幅上昇',line3:()=>'攻撃倍率+60%'};
 
   const legP=organicPlace(capP,-24,180,230,tierRadius('legend'));
   const legend={id:'bo_legend',costType:'star',scope:'slot',parent:'bo_capstone',tier:'legend',
-    name:'アストラ・アロー',icon:'✝',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
+    name:'アストラ・アロー',icon:'🌟',maxLv:1,baseCost:5,growth:1,x:legP.x,y:legP.y,
     req:{id:'bo_capstone',lvl:1},apply:(b,l)=>{b.legendBow=true;},
     line2:'画面を貫く超巨大な光の矢',line3:()=>'進路上のすべてを消滅させる'};
 
   const ultP=organicPlace(capP,24,180,230,tierRadius('ultimate'));
   const ultimate={id:'bo_ultimate',costType:'token',scope:'slot',parent:'bo_capstone',tier:'ultimate',
-    name:'百鬼夜行',icon:'➹',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
+    name:'百鬼夜行',icon:'🔱',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,x:ultP.x,y:ultP.y,
     req:{id:'bo_capstone',lvl:1},apply:(b,l)=>{b.arrowCount=(b.arrowCount||1)+2;b.bowDmgMult=(b.bowDmgMult||1)+0.3;},
     line2:'発射数と威力が最大まで強化',line3:()=>'矢の数+2 攻撃倍率+30%'};
 
