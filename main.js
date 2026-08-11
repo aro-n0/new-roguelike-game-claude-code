@@ -1,4 +1,5 @@
-/* main.js */
+/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映） */
+
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
 function slotKey(i){ return SAVE_SLOT_PREFIX+i; }
@@ -242,10 +243,74 @@ function updateVitalitySystems(dt){
   game.healItems=game.healItems.filter(h=>!h.collected);
 }
 
+/* ---- Legend自動発動・クールダウン管理 ---- */
+function updateLegendAbilities(dt){
+  const p=game.player;
+  if(!game.legendCd) game.legendCd={lifedrain:0,astra:0};
+  if(!game.legendMax) game.legendMax={lifedrain:60,astra:10};
+  Object.keys(game.legendCd).forEach(k=>{
+    const was=game.legendCd[k];
+    if(was>0){ game.legendCd[k]=Math.max(0,was-dt); if(game.legendCd[k]<=0) AudioEngine.SE.legendReady(); }
+  });
+
+  /* ライフドレイン: HP30%以下で自動発動、10秒間有効 */
+  if(p.build.legendVitality){
+    if(p.lifedrainActive){
+      p.lifedrainTimer-=dt;
+      if(p.lifedrainTimer<=0) p.lifedrainActive=false;
+    } else if(p.hp/p.maxHp<=0.3 && game.legendCd.lifedrain<=0){
+      p.lifedrainActive=true; p.lifedrainTimer=10; game.legendCd.lifedrain=60;
+      AudioEngine.SE.lifedrainOn(); spawnParticles(p.x,p.y,'#ff2b4d',30); screenShake(8);
+    }
+  }
+  /* アストラ・アロー: 10秒毎に最も近い敵へ自動発射 */
+  if(p.build.legendBow){
+    if(game.legendCd.astra<=0){
+      const t=nearestEnemyTo(p.x,p.y);
+      if(t){
+        game.legendCd.astra=10;
+        AudioEngine.SE.astraFire(); screenShake(10);
+        const ang=Math.atan2(t.y-p.y,t.x-p.x);
+        const rawDmg=(p.base.batDamage||p.base.damage)*(p.build.bowDmgMult||1)*1.5;
+        game.bullets.push({x:p.x,y:p.y,vx:Math.cos(ang)*140,vy:Math.sin(ang)*140,r:p.r*2,
+          dmg:rawDmg,owner:'player',hitSet:new Set(),maxHits:9999,color:'#c4f5ff',isAstra:true});
+        spawnParticles(p.x,p.y,'#c4f5ff',20);
+      }
+    }
+  }
+}
+
+function renderLegendBar(){
+  const bar=document.getElementById('legendBar'); if(!bar || !game) return;
+  const p=game.player;
+  const list=[];
+  if(p.build.legendVitality) list.push({key:'lifedrain',glyph:'🩸',cd:game.legendCd?game.legendCd.lifedrain:0,max:game.legendMax?game.legendMax.lifedrain:60});
+  if(p.build.legendBow) list.push({key:'astra',glyph:'🌟',cd:game.legendCd?game.legendCd.astra:0,max:game.legendMax?game.legendMax.astra:10});
+  bar.innerHTML='';
+  list.forEach(item=>{
+    const el=document.createElement('div'); el.className='legend-icon';
+    const ratio=Math.max(0,Math.min(1,item.cd/item.max));
+    el.innerHTML=`<div class="li-glyph">${item.glyph}</div><div class="li-curtain" style="height:${ratio*100}%"></div>${item.cd>0?`<div class="li-cd-text">${Math.ceil(item.cd)}</div>`:''}`;
+    bar.appendChild(el);
+  });
+}
+
+/* update(): playerFrozen(=変身演出中)はボス弾即消滅＋完全無敵、Legend更新呼び出しを追加 */
 function update(dt){
   const p=game.player;
   game.elapsed+=dt;
   if(game.shake>0) game.shake=Math.max(0,game.shake-dt*40);
+
+  if(game.playerFrozen){
+    /* 演出中: プレイヤー・ボスとも無敵、既存の敵弾は即消滅 */
+    game.bullets=game.bullets.filter(b=>b.owner!=='enemy');
+    if(game.bossActive && game.boss){
+      if(game.boss.type==='tank') updateTransform(game.boss,dt);
+      else if(game.boss.type==='fortress') updateTransform(game.boss,dt);
+    }
+    updateHUD();
+    return;
+  }
 
   if(!game.bossActive){
     game.waveTimer+=dt; game.spawnTimer+=dt;
@@ -264,18 +329,17 @@ function update(dt){
     }
   }
 
-  if(!game.playerFrozen){
-    const prevX=p.x, prevY=p.y;
-    updatePlayer(dt);
-    p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
-  }
+  const prevX=p.x, prevY=p.y;
+  updatePlayer(dt);
+  p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
+  updateLegendAbilities(dt);
+  renderLegendBar();
 
   game.swings.forEach(s=>s.life-=dt); game.swings=game.swings.filter(s=>s.life>0);
   game.lightnings.forEach(l=>l.life-=dt); game.lightnings=game.lightnings.filter(l=>l.life>0);
   game.fireballs.forEach(f=>{ f.life-=dt; f.r=f.maxR*(1-f.life/f.maxLife); }); game.fireballs=game.fireballs.filter(f=>f.life>0);
 
-  if(!game.playerFrozen) updateEnemies(dt);
-
+  updateEnemies(dt);
   if(game.bossActive && game.boss){
     if(game.boss.type==='tank') updateBossTank(game.boss,dt);
     else if(game.boss.type==='fortress'){ updateBossFortress(game.boss,dt); updateFortressLaser(game.boss,dt); }
@@ -307,7 +371,11 @@ function update(dt){
         if(dist(b.x,b.y,e.x,e.y)<b.r+e.r){
           let dmg=b.dmg, isCrit=false;
           if(b.isArrow && b.critChance!==undefined){ isCrit=Math.random()<b.critChance; dmg=dmg*(isCrit?(b.critMult||2):1); }
-          damageTarget(e,dmg,isCrit); tryApplyStatus(e); b.hitSet.add(e);
+          const isBossPartHit = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
+          if(isBossPartHit && game.playerFrozen){ continue; }
+          damageTarget(e,dmg,isCrit);
+          if(p.lifedrainActive && !b.isArrow && !b.isAstra){ /* 弾丸経由は対象外、近接のみdamageTarget呼び出し側で処理 */ }
+          tryApplyStatus(e); b.hitSet.add(e);
           if(b.hitSet.size>=(b.maxHits||1)){ b.dead=true; break; }
         }
       }
@@ -334,15 +402,23 @@ function update(dt){
   game.floatingTexts=game.floatingTexts.filter(t=>t.life>0);
   if(game.chestPopup){ game.chestPopup.timer-=dt; if(game.chestPopup.timer<=0) game.chestPopup=null; }
 
-  if(!game.legendCooldowns) game.legendCooldowns={crosscut:0,shotgun:0,lifedrain:0};
-  Object.keys(game.legendCooldowns).forEach(k=>{ if(game.legendCooldowns[k]>0) game.legendCooldowns[k]=Math.max(0,game.legendCooldowns[k]-dt); });
-  renderLegendButtons();
   if(game.waveSkipCd>0) game.waveSkipCd=Math.max(0,game.waveSkipCd-dt);
   renderWaveSkipButton();
 
-  updateVitalitySystems(dt);
   updateHUD();
   if(p.hp<=0) endRun();
+}
+
+/* startTransform: 変身開始時、既存の敵弾・自弾すべて即消滅＆完全無敵化を強化 */
+function startTransform(b){
+  b.transforming=true;
+  b.transformPhase='zoomin';
+  b.transformTimer=0;
+  game.cameraZoom={active:true,target:b,scale:1,phase:'zoomin'};
+  game.playerFrozen=true;
+  game.player.invuln=999;
+  game.bullets=game.bullets.filter(bl=>bl.owner!=='enemy');
+  game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
 }
 
 function updateHUD(){
@@ -596,42 +672,26 @@ function renderSaveSlotDialog(){
 function openSaveDialog(){ renderSaveSlotDialog(); const el=document.getElementById('saveSlotDialog'); if(el) el.classList.remove('hidden'); }
 function closeSaveDialog(){ const el=document.getElementById('saveSlotDialog'); if(el) el.classList.add('hidden'); }
 
+/* syncScreenDom: screenState==='game' の時のみ body に in-battle クラスを付与 */
 function syncScreenDom(){
-  const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
-  const coreModal=document.getElementById('coreModal'); if(coreModal) coreModal.classList.add('hidden');
+  document.body.classList.toggle('in-battle', screenState==='game');
   ['titleScreen','menuScreen','settingsScreen','gameOverScreen','gameClearScreen'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.classList.add('hidden');
   });
   const hud=document.getElementById('hud'); if(hud) hud.classList.add('hidden');
   const stOverlay=document.getElementById('skilltreeOverlay'); if(stOverlay) stOverlay.classList.add('hidden');
   const panel=document.getElementById('skillNodePanel'); if(panel) panel.classList.add('hidden');
-  const legendWrap=document.getElementById('legendButtons'); if(legendWrap) legendWrap.innerHTML='';
-
+  const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
+  const coreModal=document.getElementById('coreModal'); if(coreModal) coreModal.classList.add('hidden');
   const gc=document.getElementById('globalCurrency');
-  if(gc){
-    if(screenState==='menu'){ gc.style.display='flex'; renderGlobalCurrency(); }
-    else { gc.style.display='none'; }
-  }
+  if(gc){ if(screenState==='menu'){ gc.style.display='flex'; renderGlobalCurrency(); } else { gc.style.display='none'; } }
 
-  if(screenState==='title'){
-    const el=document.getElementById('titleScreen'); if(el) el.classList.remove('hidden');
-  }
-  else if(screenState==='menu'){
-    const el=document.getElementById('menuScreen'); if(el) el.classList.remove('hidden');
-    setText('menuMaxWave',gameData.maxWave);
-  }
-  else if(screenState==='settings'){
-    const el=document.getElementById('settingsScreen'); if(el) el.classList.remove('hidden');
-  }
-  else if(screenState==='game'){
-    if(hud) hud.classList.remove('hidden');
-  }
-  else if(screenState==='gameover'){
-    const el=document.getElementById('gameOverScreen'); if(el) el.classList.remove('hidden');
-  }
-  else if(screenState==='gameclear'){
-    const el=document.getElementById('gameClearScreen'); if(el) el.classList.remove('hidden');
-  }
+  if(screenState==='title'){ const el=document.getElementById('titleScreen'); if(el) el.classList.remove('hidden'); }
+  else if(screenState==='menu'){ const el=document.getElementById('menuScreen'); if(el) el.classList.remove('hidden'); setText('menuMaxWave',gameData.maxWave); }
+  else if(screenState==='settings'){ const el=document.getElementById('settingsScreen'); if(el) el.classList.remove('hidden'); }
+  else if(screenState==='game'){ if(hud) hud.classList.remove('hidden'); }
+  else if(screenState==='gameover'){ const el=document.getElementById('gameOverScreen'); if(el) el.classList.remove('hidden'); }
+  else if(screenState==='gameclear'){ const el=document.getElementById('gameClearScreen'); if(el) el.classList.remove('hidden'); }
   else if(screenState==='skilltree'){
     if(stOverlay) stOverlay.classList.remove('hidden');
     renderSlotBar(); SkillTree.reset();
