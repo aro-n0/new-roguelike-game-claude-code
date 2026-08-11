@@ -1,4 +1,4 @@
-/* player.js（全文更新：射程スケーリング(3倍〜7倍)、ライフドレイン近接HP吸収、drawPlayer内オーラ演出を追加統合） */
+/* player.js（全文：アストラ・アロー / ライフドレイン演出統合版） */
 
 /*
   【skilltree.js 側の修正メモ】
@@ -53,6 +53,9 @@ const easeOutBack=t=>{ const c1=1.70158,c3=c1+1; const tt=Math.min(1,Math.max(0,
 function updatePlayer(dt){
   const p=game.player;
   if(p.invuln>0) p.invuln-=dt;
+
+  /* --- 血界タイマー減算 --- */
+  if(game.bloodBorderTimer>0) game.bloodBorderTimer-=dt;
 
   /* --- Orbital Shield 更新 --- */
   p.shieldAngle=(p.shieldAngle||0)+dt*0.9;
@@ -122,7 +125,7 @@ function updatePlayer(dt){
     if(p.swingAnim<1) p.swingAnim=Math.min(1,p.swingAnim+dt/0.22);
   }
 
-  /* --- 弓の発射処理: クリティカル情報とpierce耐久値(maxHits)を正しくbulletへ渡す --- */
+  /* --- 弓の発射処理 --- */
   if(p.build.bowUnlocked){
     p.boltTimer=(p.boltTimer||0)-dt;
     if(p.boltTimer<=0 && targets.length>0){
@@ -177,7 +180,7 @@ function updatePlayer(dt){
     }
   }
 
-  /* --- ガンマン: 耐久値(maxHits)方式へ統一 --- */
+  /* --- ガンマン --- */
   if(p.build.gunnerUnlocked){
     if((p.build.pistolDmg||0)>0){
       p.pistolTimer=(p.pistolTimer||0)-dt;
@@ -272,7 +275,49 @@ function damagePlayer(amount){
   }
 }
 
-/* --- 描画: バット既存演出を完全維持 --- */
+/* --- アストラ・アロー 詠唱魔法陣描画 --- */
+function drawAstraCast(){
+  if(!game.astraCast) return;
+  const c=game.astraCast; c.life-=1/60;
+  if(c.life<=0){ game.astraCast=null; return; }
+  const a=Math.max(0,c.life/c.maxLife);
+  ctx.save(); ctx.globalAlpha=a*0.6; ctx.strokeStyle='#c4f5ff'; ctx.shadowColor='#c4f5ff'; ctx.shadowBlur=20; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(c.x,c.y,40*(1+ (1-a)*0.6),0,Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(c.x,c.y,26*(1+ (1-a)*0.6),0,Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+
+/* --- ライフドレイン 発動演出呼び出し --- */
+function triggerLifedrainVisuals(){
+  const p=game.player;
+  game.bloodBorderTimer=10;
+  game.shockwaves=game.shockwaves||[];
+  game.shockwaves.push({x:p.x,y:p.y,r:0,maxR:260,life:0.6,maxLife:0.6});
+}
+
+/* --- ショックウェーブ描画 --- */
+function drawShockwaves(dt){
+  game.shockwaves=game.shockwaves||[];
+  for(const s of game.shockwaves){
+    s.life-=dt; s.r=s.maxR*(1-Math.max(0,s.life/s.maxLife));
+    ctx.save(); ctx.globalAlpha=Math.max(0,s.life/s.maxLife)*0.5;
+    ctx.strokeStyle='#8a0022'; ctx.lineWidth=6; ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=20;
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.stroke(); ctx.restore();
+  }
+  game.shockwaves=game.shockwaves.filter(s=>s.life>0);
+}
+
+/* --- 血界(画面枠パルス)描画 --- */
+function drawBloodBorder(){
+  if(!(game.bloodBorderTimer>0)) return;
+  const pulse=0.4+0.3*Math.sin(performance.now()/200);
+  ctx.save(); ctx.globalAlpha=pulse*0.5;
+  ctx.strokeStyle='#ff2b4d'; ctx.lineWidth=30; ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=40;
+  ctx.strokeRect(0,0,W,H);
+  ctx.restore();
+}
+
+/* --- 描画関数群 --- */
 function drawCyberBat(p,batAngle,alpha,isTrail){
   ctx.save();
   ctx.globalAlpha*=alpha;
@@ -321,7 +366,6 @@ function drawGunbit(p,offAngle){
   ctx.restore();
 }
 
-/* drawNeonKnuckles: 弓+ボクサー併用時もグローブは1個のみ描画するよう修正 */
 function drawNeonKnuckles(p){
   const ang=p.meleeAngle!==undefined?p.meleeAngle:p.swingAngle;
   const kx=p.x+Math.cos(ang)*24, ky=p.y+Math.sin(ang)*24;
@@ -341,7 +385,6 @@ function drawMothership(){
   ctx.restore();
 }
 
-/* drawLifedrainAura: ライフドレイン発動中の赤黒いオーラ描画 */
 function drawLifedrainAura(){
   const p=game.player;
   if(!p.lifedrainActive) return;
@@ -355,6 +398,9 @@ function drawLifedrainAura(){
 }
 
 function drawPlayer(){
+  /* 魔法陣（Astra）を自機下層に描画 */
+  drawAstraCast();
+
   const p=game.player;
   ctx.save();
   if(p.invuln>0 && Math.floor(p.invuln*20)%2===0) ctx.globalAlpha=0.4;
@@ -367,7 +413,6 @@ function drawPlayer(){
   ctx.lineTo(p.x+6,cy-2); ctx.lineTo(p.x+12,cy-10); ctx.lineTo(p.x+12,cy); ctx.closePath(); ctx.fill();
   ctx.restore();
 
-  /* メイン武器: バット優先維持、弓習得時のみ弓に切替 */
   if(p.build.bowUnlocked){
     drawHoloBow(p);
     if(p.build.boxerMode) drawNeonKnuckles(p);
@@ -386,7 +431,6 @@ function drawPlayer(){
     drawCyberBat(p,p.swingAngle+off,1,false);
   }
 
-  /* ガンビット（バット/弓/拳と併用可） */
   if(p.build.gunnerUnlocked){ drawGunbit(p,2.4); drawGunbit(p,-2.4); }
 
   (game.drones||[]).forEach(dr=>{
@@ -394,7 +438,6 @@ function drawPlayer(){
     roundRectPath(ctx,dr.x-7,dr.y-7,14,14,4); ctx.fill(); ctx.stroke(); ctx.restore();
   });
 
-  /* ライフドレインオーラ描画 */
   drawLifedrainAura();
 }
 
