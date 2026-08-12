@@ -1,7 +1,9 @@
-/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、トークンドロップ単一粒仕様・ボス爆散・青色テキストフェード削除確実化、fortress専用描画統合） */
+/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、トークンドロップ単一粒仕様・ボス爆散・青色テキストフェード削除確実化、fortress専用描画統合、ひし形トークン描画・二重付与解消対応） */
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
+const TOKEN_PICKUP_BASE_RADIUS=30;
+
 function slotKey(i){ return SAVE_SLOT_PREFIX+i; }
 function listSaveSlots(){
   const slots=[];
@@ -60,7 +62,7 @@ function pointToSegDist(px,py,x1,y1,x2,y2){
   return dist(px,py,x1+t*dx,y1+t*dy);
 }
 
-/* damageTarget: 敵撃破時に「見た目の粒は常に1個」ドロップし、内部にtokenValueを保持させる */
+/* damageTarget: 雑魚敵の粒サイズを縮小（面積約半分＝半径×0.71） */
 function damageTarget(e,amount,isCrit){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
   spawnDamageNumber(e.x,e.y,amount,!!isCrit);
@@ -71,7 +73,7 @@ function damageTarget(e,amount,isCrit){
       game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16);
       spawnChestMaybe(e.x,e.y);
       game.tokenPickups=game.tokenPickups||[];
-      game.tokenPickups.push({x:e.x,y:e.y,r:7,phase:Math.random()*Math.PI*2,value:e.tokenValue||1,vx:0,vy:0});
+      game.tokenPickups.push({x:e.x,y:e.y,r:5,phase:Math.random()*Math.PI*2,value:e.tokenValue||1,vx:0,vy:0,isBoss:false});
     }
   }
 }
@@ -176,7 +178,7 @@ function triggerBoss(wave){
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
 
-/* ボス撃破時: 10個の青い粒を放射状にランダム爆散させる（Wave10=1個10トークン、Wave20=1個100トークン） */
+/* spawnBossTokenBurst: ボス撃破時は面積約半分の粒を10個・ルビー色で放射状ドロップ */
 function spawnBossTokenBurst(x,y,totalTokens){
   game.tokenPickups=game.tokenPickups||[];
   const perOrb=Math.round(totalTokens/10);
@@ -184,8 +186,8 @@ function spawnBossTokenBurst(x,y,totalTokens){
     const ang=Math.random()*Math.PI*2;
     const spd=120+Math.random()*180;
     game.tokenPickups.push({
-      x,y,r:9,phase:Math.random()*Math.PI*2,value:perOrb,
-      vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,burstDecay:true
+      x,y,r:6,phase:Math.random()*Math.PI*2,value:perOrb,
+      vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,burstDecay:true,isBoss:true
     });
   }
 }
@@ -275,22 +277,23 @@ function updateVitalitySystems(dt){
   game.healItems=game.healItems.filter(h=>!h.collected);
 }
 
-/* update(): トークン粒の物理更新（爆散粒は減速して静止）・当たり判定・青色浮遊テキスト生成 */
+/* updateTokenPickups: 拾得判定をプレイヤーのpickupRadius（トークン回収範囲ノード反映値）に統一し、tokenMul倍率は使用しない */
 function updateTokenPickups(dt){
   const p=game.player;
   game.tokenPickups=game.tokenPickups||[];
+  const pickupR=(p.build && p.build.pickupRadius)||TOKEN_PICKUP_BASE_RADIUS;
   for(const t of game.tokenPickups){
     t.phase=(t.phase||0)+dt*3;
     if(t.burstDecay){
       t.x+=t.vx*dt; t.y+=t.vy*dt;
       t.vx*=0.9; t.vy*=0.9;
     }
-    if(!t.collected && dist(t.x,t.y,p.x,p.y)<(t.r||7)+p.r+8){
+    if(!t.collected && dist(t.x,t.y,p.x,p.y)<(t.r||5)+pickupR){
       t.collected=true;
-      const gained=Math.round(t.value*p.base.tokenMul);
+      const gained=Math.round(t.value);
       grantTokens(gained); game.tokensThisRun+=gained;
-      AudioEngine.SE.token();
-      spawnParticles(t.x,t.y,'#00d9ff',10);
+      if(AudioEngine.SE.token){ AudioEngine.SE.token(); }
+      spawnParticles(t.x,t.y, t.isBoss?'#ff1040':'#00d9ff', 10);
       game.floatingTexts.push({x:p.x,y:p.y-16,text:'+'+gained,life:1.0,maxLife:1.0,vy:-30,isToken:true});
     }
   }
@@ -486,11 +489,12 @@ function updateHUD(){
   setText('runTokenText',game.tokensThisRun);
   setText('timeText',fmtTime(game.elapsed));
 }
+
+/* endRun: ウェーブ・撃破数依存の自動加算を廃止。トークンは拾得時にのみ加算済みのため、リザルトはその集計値を表示するだけにする */
 function endRun(){
   game.running=false; AudioEngine.SE.gameOver(); AudioEngine.stopBGM();
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.add('hidden');
-  const tokensEarned=Math.round((game.wave*15+game.kills*1)*game.player.base.tokenMul+game.tokensThisRun);
-  grantTokens(tokensEarned);
+  const tokensEarned=Math.round(game.tokensThisRun||0);
   gameData.maxWave=Math.max(gameData.maxWave,game.wave); saveGame();
   setText('statWave',game.wave);
   setText('statKills',game.kills);
@@ -500,13 +504,37 @@ function endRun(){
   setTimeout(()=>{ screenState='gameover'; syncScreenDom(); },500);
 }
 
-/* render(): トークン粒描画（青い粒） */
+/* drawTokenPickups: 円形から角丸ひし形（回転正方形）描画へ変更。ボス由来はルビーレッド */
+function drawDiamondPath(cx,cy,size,corner){
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(Math.PI/4);
+  roundRectPath(ctx,-size/2,-size/2,size,size,corner);
+  ctx.restore();
+}
 function drawTokenPickups(){
   for(const t of (game.tokenPickups||[])){
     const glow=8+Math.sin(t.phase)*4;
-    ctx.save(); ctx.shadowColor='#00d9ff'; ctx.shadowBlur=glow; ctx.fillStyle='#00d9ff';
-    ctx.beginPath(); ctx.arc(t.x,t.y,t.r||7,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#c4f5ff'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+    const size=(t.r||5)*1.7;
+    ctx.save();
+    if(t.isBoss){
+      const grad=ctx.createRadialGradient(t.x,t.y,1,t.x,t.y,size);
+      grad.addColorStop(0,'#ff6a86');
+      grad.addColorStop(0.5,'#ff1040');
+      grad.addColorStop(1,'#7a001f');
+      ctx.shadowColor='#ff1040'; ctx.shadowBlur=glow+4;
+      ctx.fillStyle=grad;
+      drawDiamondPath(t.x,t.y,size,3);
+      ctx.fill();
+      ctx.strokeStyle='#ffb3c0'; ctx.lineWidth=1.5; ctx.stroke();
+    } else {
+      ctx.shadowColor='#00d9ff'; ctx.shadowBlur=glow;
+      ctx.fillStyle='#00d9ff';
+      drawDiamondPath(t.x,t.y,size,2.4);
+      ctx.fill();
+      ctx.strokeStyle='#c4f5ff'; ctx.lineWidth=1.2; ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
