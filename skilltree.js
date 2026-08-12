@@ -66,11 +66,20 @@ const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
 const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
   x:t_range_pos.x,y:t_range_pos.y,apply:(b,l)=>{b.range*=(1+0.04*l);},line2:'近接攻撃の届く距離が伸びる',line3:l=>`射程+${Math.round(4*l)}%`};
 
-const T_DROP_MAXLV=50, T_DROP_BASE=20;
+/* t_tokendrop 定義を差分に基づき差し替え（maxLv10, baseCost20, 累計コスト2000, 効果=回収半径100%→300%） */
+const TOKEN_PICKUP_BASE_RADIUS=34; /* 0/10時＝接触しないと拾えない距離 */
+const T_DROP_MAXLV=10, T_DROP_BASE=20, T_DROP_MAXCOST=2000;
 const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
-const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークンドロップ率',icon:'⬡',maxLv:T_DROP_MAXLV,baseCost:T_DROP_BASE,
-  growth:growthFor(T_DROP_MAXLV,T_DROP_BASE,TOKENS_50WAVES_1ROUND),parent:'t_aspd',
-  x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,apply:(b,l)=>{b.tokenMul*=(1+0.05*l);},line2:'獲得するトークンが増加',line3:l=>`トークン獲得量x${(1+0.05*l).toFixed(2)}`};
+const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークン回収範囲',icon:'⬡',
+  maxLv:T_DROP_MAXLV,baseCost:T_DROP_BASE,growth:growthFor(T_DROP_MAXLV,T_DROP_BASE,T_DROP_MAXCOST),
+  parent:'t_aspd',x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,
+  apply:(b,l)=>{
+    const pct=100+200*(l/T_DROP_MAXLV);
+    b.pickupRadius=TOKEN_PICKUP_BASE_RADIUS*(pct/100);
+    b.pickupRangePct=Math.round(pct);
+  },
+  line2:'トークンを回収するときの範囲が増加',
+  line3:l=>`回収範囲 ${Math.round(100+200*(l/T_DROP_MAXLV))}%`};
 
 const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'));
 const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',icon:'➤',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
@@ -433,8 +442,8 @@ function respecActiveSlot(){
    プレイヤーステータス計算（独立ダメージ計算：基礎円バフは一括、派生バフは該当武器のみ）
    ========================================================= */
 function computePlayerStats(){
-  const base={maxHp:100,damage:1,batDamage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,tokenMul:1};
-  const build={statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
+  const base={maxHp:100,damage:1,batDamage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,pickupRadius:TOKEN_PICKUP_BASE_RADIUS,pickupRangePct:100};
+  const build={pickupRadius:TOKEN_PICKUP_BASE_RADIUS,pickupRangePct:100,statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
     bowUnlocked:false,arrowCount:1,arrowDmg:0,bowDmgMult:1,bowSpeedReduce:0,arrowPierce:0,bowRangeBonus:0,
     boxerMode:false,boxerDmg:0,boxerCombo:1,boxerDmgMult:1,boxerCritBonus:0,boxerRange:42,boxerAtkSpdMul:1,
     mageUnlocked:false,chainCount:0,mageDmg:0,mageDmgMult:1,fireballRadius:0,fireballDmg:0,mageAtkSpd:0,
@@ -699,7 +708,7 @@ function openCoreModal(){
   set('coreDamage', `${rawDamage.toFixed(1)} [${finalDamage}]`);
   set('coreAtkSpd', base.atkSpd.toFixed(2)+'/秒');
   set('coreRange', Math.round(base.range));
-  set('coreTokenDrop', ((base.tokenMul-1)*100>=0?'+':'')+Math.round((base.tokenMul-1)*100)+'%');
+  set('coreTokenDrop', (base.pickupRangePct||100)+'%');
   set('coreSpeed', Math.round(base.speed));
   set('coreKnockback', Math.round(base.knockback));
   set('coreCrit', Math.round(base.crit*100)+'%');
