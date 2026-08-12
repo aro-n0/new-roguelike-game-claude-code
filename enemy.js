@@ -19,13 +19,30 @@ function spawnEnemy(wave){
     triangle:{hp:9,dmg:6,spd:55,r:14,color:'#ffbe0b',shape:'triangle',ranged:true,shootRange:260,shootCd:1.8},
     pentagon:{hp:40,dmg:16,spd:32,r:24,color:'#a600ff',shape:'pentagon',tank:true},
   }[type];
+
+  let tokenValue;
+  if(wave<11){ tokenValue = type==='pentagon'?2:1; }
+  else { tokenValue = type==='pentagon'?3:(type==='triangle'?4:1); }
+
   return {x,y,type,shape:b.shape,color:b.color,r:b.r,hp:Math.round(b.hp*diff),maxHp:Math.round(b.hp*diff),
     dmg:Math.round(b.dmg*(1+(wave-1)*0.11)),spd:b.spd*(1+Math.min(0.6,(wave-1)*0.035)),
     ranged:!!b.ranged,shootRange:b.shootRange||0,shootCd:b.shootCd||0,shootTimer:Math.random()*1.5,
-    hitFlash:0,dots:[],slowFactor:1,slowTimer:0,dead:false};
+    hitFlash:0,dots:[],slowFactor:1,slowTimer:0,dead:false,tokenValue,hasEnteredScreen:false};
 }
 function moveToward(e,tx,ty,dt,spd){ const ang=Math.atan2(ty-e.y,tx-e.x); e.x+=Math.cos(ang)*spd*dt; e.y+=Math.sin(ang)*spd*dt; }
 function moveAway(e,tx,ty,dt,spd){ const ang=Math.atan2(e.y-ty,e.x-tx); e.x+=Math.cos(ang)*spd*dt; e.y+=Math.sin(ang)*spd*dt; }
+
+/* moveToward/moveAway 呼び出し後、画面内進入済みの敵・ボスは画面外へ出られないようクランプする共通関数 */
+function clampToScreen(obj,margin){
+  margin = margin===undefined? (obj.r||20) : margin;
+  if(!obj.hasEnteredScreen){
+    const inside = obj.x>-margin && obj.x<W+margin && obj.y>-margin && obj.y<H+margin;
+    if(inside) obj.hasEnteredScreen=true;
+    return;
+  }
+  obj.x=Math.max(margin,Math.min(W-margin,obj.x));
+  obj.y=Math.max(margin,Math.min(H-margin,obj.y));
+}
 
 function separateEnemies(){
   const list=game.enemies;
@@ -62,6 +79,7 @@ function updateEnemies(dt){
     if(e.ranged){
       if(d>e.shootRange*0.7) moveToward(e,p.x,p.y,dt,effSpd);
       else if(d<e.shootRange*0.45) moveAway(e,p.x,p.y,dt,effSpd);
+      clampToScreen(e);
       e.shootTimer-=dt;
       if(e.shootTimer<=0 && d<e.shootRange){
         e.shootTimer=e.shootCd;
@@ -70,6 +88,7 @@ function updateEnemies(dt){
       }
     } else {
       moveToward(e,p.x,p.y,dt,effSpd);
+      clampToScreen(e);
       if(d<e.r+p.r) damagePlayer(e.dmg);
     }
   }
@@ -362,6 +381,7 @@ function updateBossFortress(b,dt){
   if(b.cycleState==='cooldown'){
     b.cycleTimer-=dt;
     b.rotateAngle=(b.rotateAngle||0)+dt*2.2;
+    checkTransformTrigger(b);
     if(b.cycleTimer<=0){
       b.rotateAngle=0;
       b.cycleState='attackturn';
@@ -380,6 +400,7 @@ function updateBossFortress(b,dt){
     b.cycleTimer-=dt;
     /* 20秒経過時、攻撃モーション中なら終わるまで待機してから大CDへ */
     if(b.cycleTimer<=0 && b.attackSubState==='idle'){
+      checkTransformTrigger(b);
       b.cycleState='cooldown';
       b.cycleTimer=7;
     }
@@ -400,6 +421,7 @@ function fortressStartNextAttack(b){
     b.attackSubState='waiting';
     setTimeout(()=>{
       if(!b || b.dead) return;
+      checkTransformTrigger(b);
       if(b.cycleTimer<=0 && b.attackCount===0){
         b.attackSubState='idle';
         b.cycleState='cooldown'; b.cycleTimer=7;
