@@ -75,6 +75,7 @@ const AudioEngine=(function(){
   };
 
   Object.assign(SE,{
+    token(){ tone({freq:1500,slideTo:2200,dur:0.08,type:'sine',gain:0.16}); },
     transformRumble(){ tone({freq:45,dur:4.0,type:'sawtooth',gain:0.3}); noise({dur:4.0,gain:0.22,filterFreq:150}); },
     transformFlash(){ tone({freq:800,slideTo:1600,dur:0.25,type:'sine',gain:0.35}); noise({dur:0.2,gain:0.3,filterFreq:4000}); },
     transformSpark(){ noise({dur:0.06,gain:0.2,filterFreq:5000}); tone({freq:2000,slideTo:200,dur:0.08,type:'square',gain:0.15}); },
