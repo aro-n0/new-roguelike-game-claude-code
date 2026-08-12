@@ -2,7 +2,6 @@
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
-const TOKEN_PICKUP_BASE_RADIUS=30;
 
 function slotKey(i){ return SAVE_SLOT_PREFIX+i; }
 function listSaveSlots(){
