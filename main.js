@@ -1,4 +1,4 @@
-/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、浮遊テキストフェード削除確実化、fortress専用描画統合） */
+/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、トークンドロップ単一粒仕様・ボス爆散・青色テキストフェード削除確実化、fortress専用描画統合） */
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
@@ -59,15 +59,23 @@ function pointToSegDist(px,py,x1,y1,x2,y2){
   let t=((px-x1)*dx+(py-y1)*dy)/len2; t=Math.max(0,Math.min(1,t));
   return dist(px,py,x1+t*dx,y1+t*dy);
 }
+
+/* damageTarget: 敵撃破時に「見た目の粒は常に1個」ドロップし、内部にtokenValueを保持させる */
 function damageTarget(e,amount,isCrit){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
   spawnDamageNumber(e.x,e.y,amount,!!isCrit);
   if(e.hp<=0 && !e.dead){
     e.dead=true;
     const isBossPart = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
-    if(!isBossPart){ game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16); spawnChestMaybe(e.x,e.y); }
+    if(!isBossPart){
+      game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16);
+      spawnChestMaybe(e.x,e.y);
+      game.tokenPickups=game.tokenPickups||[];
+      game.tokenPickups.push({x:e.x,y:e.y,r:7,phase:Math.random()*Math.PI*2,value:e.tokenValue||1,vx:0,vy:0});
+    }
   }
 }
+
 function spawnDamageNumber(x,y,amount,isCrit){
   game.floatingTexts.push({x,y:y-10,text:Math.round(amount).toString(),isCrit,life:0.9,maxLife:0.9,vy:-46});
   if(isCrit){
@@ -129,7 +137,7 @@ let lastTime=0;
 
 function startRun(){
   W=canvas.width; H=canvas.height;
-  game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],swings:[],lightnings:[],fireballs:[],drones:[],
+  game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],tokenPickups:[],swings:[],lightnings:[],fireballs:[],drones:[],
     floatingTexts:[],chestPopup:null,healItems:[],regenPops:[],
     wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,spawnQueue:waveEnemyCount(1),kills:0,elapsed:0,shake:0,running:true,paused:false,
     tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0,legendCooldowns:{crosscut:0,shotgun:0,lifedrain:0},
@@ -168,9 +176,25 @@ function triggerBoss(wave){
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
 
+/* ボス撃破時: 10個の青い粒を放射状にランダム爆散させる（Wave10=1個10トークン、Wave20=1個100トークン） */
+function spawnBossTokenBurst(x,y,totalTokens){
+  game.tokenPickups=game.tokenPickups||[];
+  const perOrb=Math.round(totalTokens/10);
+  for(let i=0;i<10;i++){
+    const ang=Math.random()*Math.PI*2;
+    const spd=120+Math.random()*180;
+    game.tokenPickups.push({
+      x,y,r:9,phase:Math.random()*Math.PI*2,value:perOrb,
+      vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,burstDecay:true
+    });
+  }
+}
+
+/* endBoss: 撃破位置に応じてWave別トークン総量を爆散ドロップ */
 function endBoss(){
   const wave=game.boss.wave;
   const dropX=game.boss.x, dropY=game.boss.y;
+  const bossTokenTotal = wave===10? 100 : (wave===20? 1000 : 0);
   dissolveBoss(); AudioEngine.SE.bossDie();
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.add('hidden');
   if(!gameData.milestonesClaimed.includes(wave)){
@@ -180,7 +204,9 @@ function endBoss(){
     gameData.totalStarsEarned=(gameData.totalStarsEarned||0)+reward;
     saveGame(); AudioEngine.SE.starGain(); showStarBanner(reward);
   }
+  game.healItems=game.healItems||[];
   game.healItems.push({x:dropX,y:dropY,r:18,phase:0});
+  if(bossTokenTotal>0) spawnBossTokenBurst(dropX,dropY,bossTokenTotal);
   game.boss=null; game.bossActive=false;
   AudioEngine.startBGM(false);
   if(wave>=50){ triggerGameClear(); return; }
@@ -188,6 +214,7 @@ function endBoss(){
   game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
   showWaveBanner(game.wave); AudioEngine.SE.waveStart();
 }
+
 function triggerGameClear(){
   game.running=false; AudioEngine.SE.gameClear(); AudioEngine.stopBGM();
   gameData.maxWave=Math.max(gameData.maxWave,50); saveGame();
@@ -246,6 +273,28 @@ function updateVitalitySystems(dt){
     }
   }
   game.healItems=game.healItems.filter(h=>!h.collected);
+}
+
+/* update(): トークン粒の物理更新（爆散粒は減速して静止）・当たり判定・青色浮遊テキスト生成 */
+function updateTokenPickups(dt){
+  const p=game.player;
+  game.tokenPickups=game.tokenPickups||[];
+  for(const t of game.tokenPickups){
+    t.phase=(t.phase||0)+dt*3;
+    if(t.burstDecay){
+      t.x+=t.vx*dt; t.y+=t.vy*dt;
+      t.vx*=0.9; t.vy*=0.9;
+    }
+    if(!t.collected && dist(t.x,t.y,p.x,p.y)<(t.r||7)+p.r+8){
+      t.collected=true;
+      const gained=Math.round(t.value*p.base.tokenMul);
+      grantTokens(gained); game.tokensThisRun+=gained;
+      AudioEngine.SE.token();
+      spawnParticles(t.x,t.y,'#00d9ff',10);
+      game.floatingTexts.push({x:p.x,y:p.y-16,text:'+'+gained,life:1.0,maxLife:1.0,vy:-30,isToken:true});
+    }
+  }
+  game.tokenPickups=game.tokenPickups.filter(t=>!t.collected);
 }
 
 /* ---- Legend自動発動・クールダウン管理 ---- */
@@ -338,6 +387,7 @@ function update(dt){
   updatePlayer(dt);
   p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
   updateVitalitySystems(dt); /* updateHUD手前で必ず呼び出し */
+  updateTokenPickups(dt);
   updateLegendAbilities(dt);
 
   game.swings.forEach(s=>s.life-=dt); game.swings=game.swings.filter(s=>s.life>0);
@@ -403,6 +453,7 @@ function update(dt){
   }
   game.chests=game.chests.filter(c=>!c.collected);
 
+  /* floatingTexts: 1秒経過後に確実に配列から除去 */
   game.floatingTexts.forEach(t=>{ t.y+=t.vy*dt; t.vy*=0.94; t.life-=dt; });
   game.floatingTexts=game.floatingTexts.filter(t=>t.life>0);
   if(game.chestPopup){ game.chestPopup.timer-=dt; if(game.chestPopup.timer<=0) game.chestPopup=null; }
@@ -449,6 +500,16 @@ function endRun(){
   setTimeout(()=>{ screenState='gameover'; syncScreenDom(); },500);
 }
 
+/* render(): トークン粒描画（青い粒） */
+function drawTokenPickups(){
+  for(const t of (game.tokenPickups||[])){
+    const glow=8+Math.sin(t.phase)*4;
+    ctx.save(); ctx.shadowColor='#00d9ff'; ctx.shadowBlur=glow; ctx.fillStyle='#00d9ff';
+    ctx.beginPath(); ctx.arc(t.x,t.y,t.r||7,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#c4f5ff'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+  }
+}
+
 function render(){
   ctx.save(); ctx.clearRect(0,0,W,H);
   let zoomScale=1, zoomFocusX=W/2, zoomFocusY=H/2;
@@ -468,6 +529,8 @@ function render(){
     ctx.save(); ctx.shadowColor='#f4ff00'; ctx.shadowBlur=glow; ctx.fillStyle='#f4ff00';
     roundRectPath(ctx,c.x-c.r,c.y-c.r,c.r*2,c.r*2,5); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
   }
+  drawTokenPickups();
+
   for(const pt of game.particles){ ctx.globalAlpha=Math.max(0,pt.life/pt.maxLife); ctx.fillStyle=pt.color; ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2); ctx.fill(); }
   ctx.globalAlpha=1;
 
@@ -499,10 +562,12 @@ function render(){
   drawPlayer();
   drawOrbitalShields();
 
+  /* floatingTexts描画: isTokenは青文字、1秒でフェード後に確実削除 */
   for(const t of game.floatingTexts){
     const a=Math.max(0,t.life/t.maxLife);
     ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center'; ctx.textBaseline='middle';
-    if(t.critLabel){ ctx.font='bold 26px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=18; }
+    if(t.isToken){ ctx.font='bold 16px Consolas'; ctx.fillStyle='#00d9ff'; ctx.shadowColor='#00d9ff'; ctx.shadowBlur=10; }
+    else if(t.critLabel){ ctx.font='bold 26px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=18; }
     else if(t.isCrit){ ctx.font='bold 30px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=16; }
     else { ctx.font='bold 16px Consolas'; ctx.fillStyle='#c4f5ff'; ctx.shadowColor='#00fff2'; ctx.shadowBlur=10; }
     ctx.fillText(t.text, t.x, t.y);
