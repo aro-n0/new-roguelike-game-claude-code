@@ -1,6 +1,10 @@
+/* skilltree.js */
 "use strict";
 
-function costAt(node,lvl){ return Math.round(node.baseCost*Math.pow(node.growth,lvl)); }
+function costAt(node,lvl){
+  if(node.costFn) return Math.round(node.costFn(lvl));
+  return Math.round(node.baseCost*Math.pow(node.growth,lvl));
+}
 function mult(l,g){ return Math.pow(g,l); }
 function growthFor(maxLv,startCost,endCost){ return maxLv>1 ? Math.pow(endCost/startCost,1/(maxLv-1)) : 1; }
 function sumWaveTokens(waves){ let s=0; for(let w=1;w<=waves;w++) s+=w*15; return s; }
@@ -45,10 +49,16 @@ const core={x:0,y:0,id:'core'};
 
 /* ---- 基礎ステータス（トークン専用ツリー、幹＝上方向） ---- */
 const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'));
-const T_DMG_MAXLV=50, T_DMG_BASE=20;
-const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:T_DMG_MAXLV,baseCost:T_DMG_BASE,
-  growth:growthFor(T_DMG_MAXLV,T_DMG_BASE,TOKENS_50WAVES_1ROUND),parent:'core',
-  x:t_dmg_pos.x,y:t_dmg_pos.y,apply:(b,l)=>{b.batDamage+=1.3*l; b.damage+=1.3*l;},line2:'近接ダメージが上昇',line3:l=>`攻撃力+${(1.3*l).toFixed(1)}`};
+
+/* 攻撃力ノード: Lv1コスト20→LvMax(50)コスト5000、Lv1効果+1→LvMax(50)効果+100 */
+const DMG_MAXLV=50, DMG_BASE=20, DMG_TARGET_COST=5000;
+const DMG_A=(DMG_TARGET_COST-DMG_BASE)/Math.pow(DMG_MAXLV-1,1.8);
+const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:DMG_MAXLV,
+  baseCost:DMG_BASE,growth:1,costFn:lvl=>DMG_BASE+DMG_A*Math.pow(lvl,1.8),
+  parent:'core',x:t_dmg_pos.x,y:t_dmg_pos.y,
+  apply:(b,l)=>{ const effect=1+(100-1)*(l-1)/(DMG_MAXLV-1); b.batDamage+=effect; b.damage+=effect; },
+  line2:'近接ダメージが上昇',
+  line3:l=>`攻撃力+${(1+(100-1)*(l-1)/(DMG_MAXLV-1)).toFixed(1)}`};
 
 const t_aspd_pos=organicPlace(t_dmg_pos,-150,140,185,tierRadius('gate'));
 const t_aspd={id:'t_aspd',costType:'token',scope:'global',name:'攻撃速度',icon:'⚡',maxLv:12,baseCost:10,growth:1.5,parent:'t_dmg',
@@ -59,14 +69,22 @@ const t_crit={id:'t_crit',costType:'token',scope:'global',name:'クリティカ�
   x:t_crit_pos.x,y:t_crit_pos.y,apply:(b,l)=>{b.crit+=0.02*l;},line2:'会心の一撃が発生しやすくなる',line3:l=>`クリティカル率+${Math.round(2*l)}%`};
 
 const t_hp_pos=organicPlace(t_dmg_pos,-90,190,235,tierRadius('gate'));
-const t_hp={id:'t_hp',costType:'token',scope:'global',name:'体力増強',icon:'♥',maxLv:15,baseCost:8,growth:1.45,parent:'t_dmg',
-  x:t_hp_pos.x,y:t_hp_pos.y,apply:(b,l)=>{b.maxHp+=12*l;},line2:'最大HPが増加',line3:l=>`最大HP+${12*l}`};
+
+/* 体力ノード: Lv1コスト8→LvMax(50)コスト3400、Lv1効果+12→LvMax(50)効果+650 */
+const HP_MAXLV=50, HP_BASE=8, HP_TARGET_COST=3400;
+const HP_A=(HP_TARGET_COST-HP_BASE)/Math.pow(HP_MAXLV-1,1.8);
+const t_hp={id:'t_hp',costType:'token',scope:'global',name:'体力増強',icon:'♥',maxLv:HP_MAXLV,
+  baseCost:HP_BASE,growth:1,costFn:lvl=>HP_BASE+HP_A*Math.pow(lvl,1.8),
+  parent:'t_dmg',x:t_hp_pos.x,y:t_hp_pos.y,
+  apply:(b,l)=>{ const effect=12+(650-12)*(l-1)/(HP_MAXLV-1); b.maxHp+=effect; },
+  line2:'最大HPが増加',
+  line3:l=>`最大HP+${Math.round(12+(650-12)*(l-1)/(HP_MAXLV-1))}`};
 
 const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
 const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
   x:t_range_pos.x,y:t_range_pos.y,apply:(b,l)=>{b.range*=(1+0.04*l);},line2:'近接攻撃の届く距離が伸びる',line3:l=>`射程+${Math.round(4*l)}%`};
 
-/* t_tokendrop 定義を差分に基づき差し替え（maxLv10, baseCost20, 累計コスト2000, 効果=回収半径100%→300%） */
+/* t_tokendrop 定義 */
 const TOKEN_PICKUP_BASE_RADIUS=34; /* 0/10時＝接触しないと拾えない距離 */
 const T_DROP_MAXLV=10, T_DROP_BASE=20, T_DROP_MAXCOST=2000;
 const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
