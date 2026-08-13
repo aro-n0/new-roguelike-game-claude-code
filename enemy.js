@@ -224,6 +224,10 @@ function startTransform(b){
   game.player.invuln=999;
   game.bullets=game.bullets.filter(bl=>bl.owner!=='enemy');
   game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
+
+  /* Wave10/20ボスのBGMを1.5秒でフェードアウトし、演出完了時に第2形態BGMを再生するようキューイング */
+  if(b.wave===10){ BGMManager.fadeOutThenQueue('boss10p2',1500); }
+  else if(b.wave===20){ BGMManager.fadeOutThenQueue('boss20p2',1500); }
 }
 
 function applyFormChange(b){
@@ -258,6 +262,7 @@ function updateTransform(b,dt){
         game.cameraZoom={active:false,target:null,scale:1,phase:null};
         game.playerFrozen=false; game.player.invuln=0;
         game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
+        if(b.wave===10){ BGMManager.playQueuedNow('boss10p2'); }
       }
     }
     return;
@@ -322,6 +327,7 @@ function updateTransform(b,dt){
       game.playerFrozen=false; game.player.invuln=0;
       game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
       b.cycleState='cooldown'; b.cycleTimer=7;
+      if(b.wave===20){ BGMManager.playQueuedNow('boss20p2'); }
     }
   }
 }
