@@ -315,3 +315,102 @@ const AudioEngine = (function () {
     },
   };
 })();
+/* BGMManager — ファイルベースBGMの自動切り替え・クロスフェード管理 */
+const BGMManager = (function () {
+  const TRACKS = {
+    stage1: 'assets/bgm/bgm_stage_01.mp3',
+    stage2: 'assets/bgm/bgm_stage_02.mp3',
+    boss10p1: 'assets/bgm/bgm_boss10_phase1.mp3',
+    boss10p2: 'assets/bgm/bgm_boss10_phase2.mp3',
+    boss20p1: 'assets/bgm/bgm_boss20_phase1.mp3',
+    boss20p2: 'assets/bgm/bgm_boss20_phase2.mp3',
+  };
+  let audioEl = null;
+  let currentKey = null;
+  let fadeTimer = null;
+  let targetVolume = 0.35;
+  let pendingSwitchKey = null;
+
+  function ensureElement() {
+    if (!audioEl) {
+      audioEl = new Audio();
+      audioEl.loop = true;
+      audioEl.volume = 0;
+    }
+    return audioEl;
+  }
+  function setBaseVolume(v) { targetVolume = v; if (audioEl && !fadeTimer) audioEl.volume = v; }
+  function clearFade() { if (fadeTimer) { clearInterval(fadeTimer); fadeTimer = null; } }
+
+  function playImmediate(key) {
+    if (!key || !TRACKS[key]) return;
+    const el = ensureElement();
+    if (currentKey === key && !el.paused) { el.volume = targetVolume; return; }
+    clearFade();
+    try {
+      el.src = TRACKS[key];
+      el.currentTime = 0;
+      el.volume = targetVolume;
+      el.play().catch(() => {});
+      currentKey = key;
+    } catch (e) {}
+  }
+
+  function fadeOut(durationMs, onComplete) {
+    durationMs = durationMs || 1500;
+    const el = ensureElement();
+    clearFade();
+    if (el.paused || el.volume <= 0.001) {
+      el.pause();
+      if (onComplete) onComplete();
+      return;
+    }
+    const startVol = el.volume;
+    const startTime = performance.now();
+    fadeTimer = setInterval(() => {
+      const t = (performance.now() - startTime) / durationMs;
+      if (t >= 1) {
+        el.volume = 0; el.pause();
+        clearFade();
+        currentKey = null;
+        if (onComplete) onComplete();
+      } else {
+        el.volume = startVol * (1 - t);
+      }
+    }, 30);
+  }
+
+  function switchTo(key) {
+    if (!key || key === currentKey) return;
+    playImmediate(key);
+  }
+
+  function fadeOutThenQueue(key, durationMs) {
+    pendingSwitchKey = key;
+    fadeOut(durationMs, () => {
+      if (pendingSwitchKey) { playImmediate(pendingSwitchKey); pendingSwitchKey = null; }
+    });
+  }
+
+  function playQueuedNow(key) {
+    clearFade();
+    pendingSwitchKey = null;
+    playImmediate(key);
+  }
+
+  function stop() {
+    clearFade();
+    if (audioEl) { audioEl.pause(); }
+    currentKey = null;
+  }
+
+  return {
+    switchTo,
+    fadeOutThenQueue,
+    playQueuedNow,
+    fadeOut,
+    stop,
+    setVolume: setBaseVolume,
+    get currentKey() { return currentKey; }
+  };
+})();
