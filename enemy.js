@@ -1,34 +1,74 @@
 /* enemy.js */
 
+function lerp(x,x1,y1,x2,y2){ if(x2===x1) return y1; return y1+(y2-y1)*(x-x1)/(x2-x1); }
+
+/* 敵種別の出現重み（Wave帯ごとに線形補間） */
+function getWaveEnemyWeights(wave){
+  if(wave<10){
+    const square=lerp(wave,1,70,9,60);
+    return {square, pentagon:100-square, triangle:0};
+  } else if(wave<20){
+    const square=lerp(wave,11,60,19,50);
+    const triangle=lerp(wave,11,10,19,20);
+    return {square, pentagon:30, triangle};
+  } else {
+    const square=lerp(wave,21,50,49,40);
+    const pentagon=lerp(wave,21,30,49,40);
+    const triangle=lerp(wave,21,20,49,30);
+    return {square, pentagon, triangle};
+  }
+}
+
+function pickEnemyType(wave){
+  const w=getWaveEnemyWeights(wave);
+  const total=w.square+w.pentagon+w.triangle;
+  const roll=Math.random()*total;
+  if(roll<w.square) return 'square';
+  if(roll<w.square+w.pentagon) return 'pentagon';
+  return 'triangle';
+}
+
+/* Wave帯ごとの合計出現数（一次関数補間） */
+function waveEnemyCount(wave){
+  if(wave<10) return Math.round(lerp(wave,1,10,9,18));
+  if(wave<20) return Math.round(lerp(wave,11,18,19,30));
+  return Math.round(lerp(wave,21,35,49,80));
+}
+
+/* spawnEnemy: HP/攻撃力をWave1〜49で線形補間（五角形HPは30→9000へ修正） */
 function spawnEnemy(wave){
   const edge=Math.floor(Math.random()*4); let x,y; const margin=60;
   if(edge===0){x=-margin;y=Math.random()*H;} else if(edge===1){x=W+margin;y=Math.random()*H;}
   else if(edge===2){x=Math.random()*W;y=-margin;} else {x=Math.random()*W;y=H+margin;}
-  const diff=1+(wave-1)*0.14; // スケーリング倍率を少しマイルドに調整
-  const roll=Math.random();
-  let type;
-  if(wave<11){
-    // Wave 11未満は四角形と五角形のみ出現（三角形の遠距離敵は出現しない）
-    type = roll<0.72 ? 'square' : 'pentagon';
+
+  const type=pickEnemyType(wave);
+
+  let hp,dmg,spd,r,color,shape,ranged=false,shootRange=0,shootCd=0;
+  if(type==='square'){
+    hp=lerp(wave,1,10,49,5000);
+    dmg=lerp(wave,1,4,49,100);
+    spd=70*(1+Math.min(0.6,(wave-1)*0.02)); r=16; color='#ff3860'; shape='square';
+  } else if(type==='pentagon'){
+    hp=lerp(wave,1,30,49,9000); /* 修正: 30→9000 */
+    dmg=lerp(wave,1,2,49,110);
+    spd=32*(1+Math.min(0.6,(wave-1)*0.015)); r=24; color='#a600ff'; shape='pentagon';
   } else {
-    // Wave 11以降から三角形（遠距離）が登場
-    type = roll<0.5 ? 'square' : (roll<0.78 ? 'triangle' : 'pentagon');
+    hp=lerp(wave,1,10,49,5000);
+    dmg=lerp(wave,1,4,49,80);
+    spd=55*(1+Math.min(0.6,(wave-1)*0.02)); r=14; color='#ffbe0b'; shape='triangle';
+    ranged=true; shootRange=260; shootCd=1.8;
   }
-  const b={
-    square:{hp:9,dmg:8,spd:70,r:16,color:'#ff3860',shape:'square'},
-    triangle:{hp:9,dmg:6,spd:55,r:14,color:'#ffbe0b',shape:'triangle',ranged:true,shootRange:260,shootCd:1.8},
-    pentagon:{hp:40,dmg:16,spd:32,r:24,color:'#a600ff',shape:'pentagon',tank:true},
-  }[type];
+  hp=Math.max(1,Math.round(hp)); dmg=Math.max(1,Math.round(dmg));
 
   let tokenValue;
   if(wave<11){ tokenValue = type==='pentagon'?2:1; }
   else { tokenValue = type==='pentagon'?3:(type==='triangle'?4:1); }
 
-  return {x,y,type,shape:b.shape,color:b.color,r:b.r,hp:Math.round(b.hp*diff),maxHp:Math.round(b.hp*diff),
-    dmg:Math.round(b.dmg*(1+(wave-1)*0.11)),spd:b.spd*(1+Math.min(0.6,(wave-1)*0.035)),
-    ranged:!!b.ranged,shootRange:b.shootRange||0,shootCd:b.shootCd||0,shootTimer:Math.random()*1.5,
-    hitFlash:0,dots:[],slowFactor:1,slowTimer:0,dead:false,tokenValue,hasEnteredScreen:false};
+  return {x,y,type,shape,color,r,hp,maxHp:hp,dmg,spd,
+    ranged,shootRange,shootCd,shootTimer:Math.random()*1.5,
+    hitFlash:0,dots:[],slowFactor:1,slowTimer:0,dead:false,tokenValue,hasEnteredScreen:false,wave};
 }
+
 function moveToward(e,tx,ty,dt,spd){ const ang=Math.atan2(ty-e.y,tx-e.x); e.x+=Math.cos(ang)*spd*dt; e.y+=Math.sin(ang)*spd*dt; }
 function moveAway(e,tx,ty,dt,spd){ const ang=Math.atan2(e.y-ty,e.x-tx); e.x+=Math.cos(ang)*spd*dt; e.y+=Math.sin(ang)*spd*dt; }
 
@@ -58,6 +98,7 @@ function separateEnemies(){
     }
   }
 }
+
 function updateEnemyCommon(e,dt){
   if(e.hitFlash>0) e.hitFlash-=dt;
   if(e.slowTimer>0){ e.slowTimer-=dt; if(e.slowTimer<=0) e.slowFactor=1; }
@@ -70,6 +111,7 @@ function updateEnemyCommon(e,dt){
     e.dots=e.dots.filter(d=>d.remaining>0);
   }
 }
+
 function updateEnemies(dt){
   const p=game.player;
   for(const e of game.enemies){
@@ -95,6 +137,7 @@ function updateEnemies(dt){
   separateEnemies();
   game.enemies=game.enemies.filter(e=>!e.dead);
 }
+
 function drawEnemyShape(e){
   ctx.save();
   const flashColor=e.hitFlash>0?'#ffffff':((e.dots&&e.dots.some(d=>d.color==='#39ff88'))?'#7cffb0':e.color);
@@ -111,12 +154,14 @@ function drawEnemyShape(e){
   ctx.fillStyle=e.color; ctx.fillRect(0,0,w*Math.max(0,e.hp/e.maxHp),4);
   ctx.restore();
 }
+
 function drawEnemies(){ game.enemies.forEach(drawEnemyShape); }
 
 /* ===================== TELEGRAPH SYSTEM ===================== */
 function startTelegraph(owner,tele,duration,onFire){
   owner.telegraph=Object.assign({timer:duration,maxTimer:duration,onFire},tele);
 }
+
 function updateTelegraph(owner,dt){
   if(!owner.telegraph) return false;
   owner.telegraph.timer-=dt;
@@ -127,6 +172,7 @@ function updateTelegraph(owner,dt){
   }
   return false;
 }
+
 function collectTelegraphs(){
   const b=game.boss; if(!b) return [];
   let list=[];
@@ -135,6 +181,7 @@ function collectTelegraphs(){
   if(b.segs) b.segs.forEach(s=>{ if(s.telegraph) list.push(s.telegraph); });
   return list;
 }
+
 function drawTelegraphs(){
   collectTelegraphs().forEach(t=>{
     const a=0.3+0.2*(1-t.timer/t.maxTimer);
@@ -544,7 +591,7 @@ const BOSS_TABLE={10:'tank',20:'fortress',30:'splitter',40:'twinhead',50:'centip
 function createBoss(wave){
   const type=BOSS_TABLE[wave];
   const scale=1+(wave/10-1)*0.35;
-  const base={x:W/2,y:-150,vx:0,vy:0,r:60,type,wave,dead:false,hitFlash:0,phaseTimer:0,attackTimer:1.5,dots:[],slowFactor:1,slowTimer:0,telegraph:null};
+  const base={x:W/2,y:-150,vx:0,vy:0,r:60,type,wave,dead:false,hitFlash:0,phaseTimer:0,attackTimer:1.5,dots:[],slowFactor:1,slowTimer:0,telegraph:null,hasEnteredScreen:false};
   if(type==='tank'){
     const boss=Object.assign(base,{name:'巨大タンク・デストロイヤー',color:'#a600ff',shape:'pentagon',r:70*Math.min(1.4,scale),
       hp:900*scale,maxHp:900*scale,dmg:26*scale,spd:34,mode:'chase',dashTimer:4,formTier:1,entranceTimer:0});
@@ -575,16 +622,19 @@ function createBoss(wave){
       hp:0,maxHp:0,dmg:20*scale,spd:70,segs,t:0,history:[]});
   }
 }
+
 function bossTotalHp(b){
   if(b.type==='splitter') return b.hp+b.children.reduce((s,c)=>s+(c.dead?0:c.hp),0);
   if(b.type==='centipede') return b.segs.reduce((s,s2)=>s+(s2.dead?0:s2.hp),0);
   return b.hp;
 }
+
 function bossMaxHp(b){
   if(b.type==='splitter') return b.maxHp+b.children.reduce((s,c)=>s+c.maxHp,0);
   if(b.type==='centipede') return b.segs.reduce((s,s2)=>s+s2.maxHp,0);
   return b.maxHp;
 }
+
 function bossIsDefeated(b){
   if(b.type==='splitter') return b.hp<=0 && b.children.every(c=>c.dead);
   if(b.type==='centipede') return b.segs.every(s=>s.dead);
@@ -604,11 +654,15 @@ function updateBoss(dt){
     updateBossFortress(b,dt);
   }
   else if(b.type==='splitter'){
-    if(b.hp>0) moveToward(b,p.x,p.y,dt,b.spd);
+    if(b.hp>0) {
+      moveToward(b,p.x,p.y,dt,b.spd);
+      clampToScreen(b,b.r);
+    }
     if(b.hp>0 && dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*dt*2);
     b.children.forEach(c=>{
       if(c.dead) return;
       moveToward(c,p.x,p.y,dt,c.spd);
+      clampToScreen(c,c.r);
       if(dist(c.x,c.y,p.x,p.y)<c.r+p.r) damagePlayer(c.dmg*dt*2);
     });
     const ratio=b.hp/b.maxHp;
@@ -621,10 +675,12 @@ function updateBoss(dt){
       if(b.modeTimer<=0){ b.mode=b.mode==='melee'?'ranged':'melee'; b.modeTimer=5; }
       if(b.mode==='melee'){
         moveToward(b,p.x,p.y,dt,b.spd);
+        clampToScreen(b,b.r);
         if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(b.dmg*dt*2.4);
       } else {
         const d=dist(b.x,b.y,p.x,p.y);
         if(d<260) moveAway(b,p.x,p.y,dt,b.spd*0.6);
+        clampToScreen(b,b.r);
         b.attackTimer-=dt;
         if(b.attackTimer<=0){
           b.attackTimer=1.0;
@@ -674,7 +730,7 @@ function splitBoss(b){
   AudioEngine.SE.hitEnemy(); screenShake(12);
   for(let i=0;i<2;i++){
     const ang=Math.random()*Math.PI*2;
-    b.children.push({x:b.x+Math.cos(ang)*60,y:b.y+Math.sin(ang)*60,r:36,hp:b.maxHp*0.18,maxHp:b.maxHp*0.18,dmg:b.dmg*0.6,spd:b.spd*1.6,dead:false,hitFlash:0,dots:[],slowFactor:1,slowTimer:0,color:b.color});
+    b.children.push({x:b.x+Math.cos(ang)*60,y:b.y+Math.sin(ang)*60,r:36,hp:b.maxHp*0.18,maxHp:b.maxHp*0.18,dmg:b.dmg*0.6,spd:b.spd*1.6,dead:false,hitFlash:0,dots:[],slowFactor:1,slowTimer:0,color:b.color,hasEnteredScreen:true});
     spawnParticles(b.x,b.y,b.color,20);
   }
 }
