@@ -1,4 +1,4 @@
-/* main.js（統合完了版：宝箱トークンNaNバグ修正、スキルツリー画面等でのウェーブスキップボタン完全非表示、バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、トークンドロップ単一粒仕様・ボス爆散・青色テキストフェード削除確実化、fortress専用描画統合、ひし形トークン描画・二重付与解消対応） */
+/* main.js（統合完了版：BGMManager自動切り替え・ボスWave別ファイルBGM優先切り替え・統合管理対応） */
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
@@ -170,12 +170,17 @@ function loop(now){
 }
 
 const BOSS_STAR_REWARD={10:2,20:2,30:3,40:3,50:5};
+
+/* triggerBoss: 出現時（第1形態）BGMをWave別に再生 */
 function triggerBoss(wave){
   game.bullets=[];
   game.boss=createBoss(wave); game.bossActive=true;
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.remove('hidden');
   const nameEl=document.getElementById('bossName'); if(nameEl) nameEl.textContent=game.boss.name;
-  AudioEngine.SE.bossAppear(); AudioEngine.startBGM(true);
+  AudioEngine.SE.bossAppear();
+  if(wave===10){ BGMManager.switchTo('boss10p1'); }
+  else if(wave===20){ BGMManager.switchTo('boss20p1'); }
+  else { AudioEngine.startBGM(true); }
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
 
@@ -211,7 +216,10 @@ function endBoss(){
   game.healItems.push({x:dropX,y:dropY,r:18,phase:0});
   if(bossTokenTotal>0) spawnBossTokenBurst(dropX,dropY,bossTokenTotal);
   game.boss=null; game.bossActive=false;
+  
+  BGMManager.stop();
   AudioEngine.startBGM(false);
+
   if(wave>=50){ triggerGameClear(); return; }
   game.wave=wave+1; game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
   game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
@@ -364,6 +372,11 @@ function update(dt){
 
   if(!game.bossActive){
     game.waveTimer+=dt; game.spawnTimer+=dt;
+
+    /* 通常ウェーブBGM: 1〜19はstage1、21〜49はstage2。同じ曲なら切替しない */
+    if(game.wave>=1 && game.wave<=19){ BGMManager.switchTo('stage1'); }
+    else if(game.wave>=21 && game.wave<=49){ BGMManager.switchTo('stage2'); }
+
     if(game.waveTimer>=game.waveDuration){
       const nextWave=game.wave+1;
       if(BOSS_TABLE[nextWave]){ game.wave=nextWave; triggerBoss(nextWave); }
