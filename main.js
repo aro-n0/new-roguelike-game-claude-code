@@ -1,4 +1,4 @@
-/* main.js（統合完了版：バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、トークンドロップ単一粒仕様・ボス爆散・青色テキストフェード削除確実化、fortress専用描画統合、ひし形トークン描画・二重付与解消対応） */
+/* main.js（統合完了版：宝箱トークンNaNバグ修正、スキルツリー画面等でのウェーブスキップボタン完全非表示、バトル画面限定UI制御、Legend UIバー、Legend能力自動発動・クールダウン管理、変身中の完全無敵化、射程スケーリング反映、トークンドロップ単一粒仕様・ボス爆散・青色テキストフェード削除確実化、fortress専用描画統合、ひし形トークン描画・二重付与解消対応） */
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
@@ -61,7 +61,7 @@ function pointToSegDist(px,py,x1,y1,x2,y2){
   return dist(px,py,x1+t*dx,y1+t*dy);
 }
 
-/* damageTarget: 雑魚敵の粒サイズを縮小（面積約半分＝半径×0.71） */
+/* damageTarget: 敵撃破時のspawnChestMaybe呼び出しをWave引き継ぎ版へ差し替え */
 function damageTarget(e,amount,isCrit){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
   spawnDamageNumber(e.x,e.y,amount,!!isCrit);
@@ -70,7 +70,7 @@ function damageTarget(e,amount,isCrit){
     const isBossPart = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
     if(!isBossPart){
       game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16);
-      spawnChestMaybe(e.x,e.y);
+      spawnChestMaybe(e.x,e.y,e.wave||game.wave);
       game.tokenPickups=game.tokenPickups||[];
       game.tokenPickups.push({x:e.x,y:e.y,r:5,phase:Math.random()*Math.PI*2,value:e.tokenValue||1,vx:0,vy:0,isBoss:false});
     }
@@ -84,12 +84,14 @@ function spawnDamageNumber(x,y,amount,isCrit){
     AudioEngine.SE.critical();
   }
 }
-function spawnChestMaybe(x,y){
+
+/* spawnChestMaybe: 敵のスポーンWaveを保持して宝箱に引き継ぐ */
+function spawnChestMaybe(x,y,wave){
   if(Math.random()<0.005){
-    const val=Math.min(200, 20+game.wave*4+Math.floor(Math.random()*10));
-    game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,value:val});
+    game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,dropWave:wave||game.wave});
   }
 }
+
 function spawnParticles(x,y,color,count){
   for(let i=0;i<count;i++){
     const ang=Math.random()*Math.PI*2, spd=60+Math.random()*180;
@@ -228,7 +230,6 @@ function triggerGameClear(){
 function fmtTime(t){ return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0'); }
 function setText(id,val){ const el=document.getElementById(id); if(el) el.textContent=val; }
 
-/* updateVitalitySystems内: regenPopsの寿命管理をフェード＋確実削除に統一 */
 function updateVitalitySystems(dt){
   const p=game.player;
   const maxShield=3+(p.build.shieldMaxBonus||0);
@@ -259,9 +260,8 @@ function updateVitalitySystems(dt){
   }
   game.regenPops=game.regenPops||[];
   for(const r of game.regenPops){ r.y+=r.vy*dt; r.life-=dt; }
-  game.regenPops=game.regenPops.filter(r=>r.life>0); /* 1秒経過後に確実削除 */
+  game.regenPops=game.regenPops.filter(r=>r.life>0);
 
-  /* HP50%回復アイテム（ボス撃破ドロップ）の当たり判定を確実に実行 */
   game.healItems=game.healItems||[];
   for(const h of game.healItems){
     h.phase=(h.phase||0)+dt*3;
@@ -276,7 +276,6 @@ function updateVitalitySystems(dt){
   game.healItems=game.healItems.filter(h=>!h.collected);
 }
 
-/* updateTokenPickups: 拾得判定をプレイヤーのpickupRadius（トークン回収範囲ノード反映値）に統一し、tokenMul倍率は使用しない */
 function updateTokenPickups(dt){
   const p=game.player;
   game.tokenPickups=game.tokenPickups||[];
@@ -299,7 +298,6 @@ function updateTokenPickups(dt){
   game.tokenPickups=game.tokenPickups.filter(t=>!t.collected);
 }
 
-/* ---- Legend自動発動・クールダウン管理 ---- */
 function updateLegendAbilities(dt){
   const p=game.player;
   if(!game.legendCd) game.legendCd={lifedrain:0,astra:0};
@@ -309,7 +307,6 @@ function updateLegendAbilities(dt){
     if(was>0){ game.legendCd[k]=Math.max(0,was-dt); if(game.legendCd[k]<=0) AudioEngine.SE.legendReady(); }
   });
 
-  /* ライフドレイン: HP30%以下で自動発動、10秒間有効 */
   if(p.build.legendVitality){
     if(p.lifedrainActive){
       p.lifedrainTimer-=dt;
@@ -319,7 +316,6 @@ function updateLegendAbilities(dt){
       AudioEngine.SE.lifedrainOn(); spawnParticles(p.x,p.y,'#ff2b4d',30); screenShake(8);
     }
   }
-  /* アストラ・アロー: 10秒毎に最も近い敵へ自動発射 */
   if(p.build.legendBow){
     if(game.legendCd.astra<=0){
       const t=nearestEnemyTo(p.x,p.y);
@@ -351,14 +347,12 @@ function renderLegendBar(){
   });
 }
 
-/* update(): playerFrozen(=変身演出中)はボス弾即消滅＋完全無敵、Legend更新呼び出しを追加 */
 function update(dt){
   const p=game.player;
   game.elapsed+=dt;
   if(game.shake>0) game.shake=Math.max(0,game.shake-dt*40);
 
   if(game.playerFrozen){
-    /* 演出中: プレイヤー・ボスとも無敵、既存の敵弾は即消滅 */
     game.bullets=game.bullets.filter(b=>b.owner!=='enemy');
     if(game.bossActive && game.boss){
       if(game.boss.type==='tank') updateTransform(game.boss,dt);
@@ -388,7 +382,7 @@ function update(dt){
   const prevX=p.x, prevY=p.y;
   updatePlayer(dt);
   p.moveVX=(p.x-prevX)/Math.max(dt,0.0001); p.moveVY=(p.y-prevY)/Math.max(dt,0.0001);
-  updateVitalitySystems(dt); /* updateHUD手前で必ず呼び出し */
+  updateVitalitySystems(dt);
   updateTokenPickups(dt);
   updateLegendAbilities(dt);
 
@@ -431,7 +425,6 @@ function update(dt){
           const isBossPartHit = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
           if(isBossPartHit && game.playerFrozen){ continue; }
           damageTarget(e,dmg,isCrit);
-          if(p.lifedrainActive && !b.isArrow && !b.isAstra){ /* 弾丸経由は対象外、近接のみdamageTarget呼び出し側で処理 */ }
           tryApplyStatus(e); b.hitSet.add(e);
           if(b.hitSet.size>=(b.maxHits||1)){ b.dead=true; break; }
         }
@@ -443,11 +436,14 @@ function update(dt){
   for(const pt of game.particles){ pt.x+=pt.vx*dt; pt.y+=pt.vy*dt; pt.vx*=0.92; pt.vy*=0.92; pt.life-=dt; }
   game.particles=game.particles.filter(pt=>pt.life>0);
 
+  /* update() 内、宝箱回収処理を新計算式（Base=Wave*10、Base±20、最小10保証）へ置き換え */
   for(const c of game.chests){
     c.phase+=dt*3;
     if(dist(c.x,c.y,p.x,p.y)<c.r+p.r+10){
       c.collected=true;
-      const gained=Math.round(c.value*p.base.tokenMul);
+      const wave=c.dropWave||game.wave||1;
+      const base=wave*10;
+      const gained=Math.max(10, Math.floor(base + (Math.random()*41-20)));
       grantTokens(gained); game.tokensThisRun+=gained;
       AudioEngine.SE.chestFanfare(); spawnParticles(c.x,c.y,'#f4ff00',40);
       game.chestPopup={text:'+'+gained+' TOKENS!',timer:1.8,maxTimer:1.8};
@@ -455,7 +451,6 @@ function update(dt){
   }
   game.chests=game.chests.filter(c=>!c.collected);
 
-  /* floatingTexts: 1秒経過後に確実に配列から除去 */
   game.floatingTexts.forEach(t=>{ t.y+=t.vy*dt; t.vy*=0.94; t.life-=dt; });
   game.floatingTexts=game.floatingTexts.filter(t=>t.life>0);
   if(game.chestPopup){ game.chestPopup.timer-=dt; if(game.chestPopup.timer<=0) game.chestPopup=null; }
@@ -467,7 +462,6 @@ function update(dt){
   if(p.hp<=0) endRun();
 }
 
-/* startTransform: 変身開始時、既存の敵弾・自弾すべて即消滅＆完全無敵化を強化 */
 function startTransform(b){
   b.transforming=true;
   b.transformPhase='zoomin';
@@ -489,7 +483,6 @@ function updateHUD(){
   setText('timeText',fmtTime(game.elapsed));
 }
 
-/* endRun: ウェーブ・撃破数依存の自動加算を廃止。トークンは拾得時にのみ加算済みのため、リザルトはその集計値を表示するだけにする */
 function endRun(){
   game.running=false; AudioEngine.SE.gameOver(); AudioEngine.stopBGM();
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.add('hidden');
@@ -503,7 +496,6 @@ function endRun(){
   setTimeout(()=>{ screenState='gameover'; syncScreenDom(); },500);
 }
 
-/* drawTokenPickups: 円形から角丸ひし形（回転正方形）描画へ変更。ボス由来はルビーレッド */
 function drawDiamondPath(cx,cy,size,corner){
   ctx.save();
   ctx.translate(cx,cy);
@@ -589,7 +581,6 @@ function render(){
   drawPlayer();
   drawOrbitalShields();
 
-  /* floatingTexts描画: isTokenは青文字、1秒でフェード後に確実削除 */
   for(const t of game.floatingTexts){
     const a=Math.max(0,t.life/t.maxLife);
     ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -609,7 +600,6 @@ function render(){
     ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
   }
-  /* render() 内、regenPops描画: フェードアウトのみで残存させない */
   for(const r of (game.regenPops||[])){
     const a=Math.max(0,r.life/r.maxLife);
     ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#39ff88'; ctx.shadowColor='#39ff88'; ctx.shadowBlur=10;
@@ -637,7 +627,6 @@ function render(){
     ctx.restore();
   }
 
-  /* render() 末尾で毎フレーム確実にLegendバーを更新（DOM要素のためcanvas描画順の影響を受けない） */
   renderLegendBar();
 }
 
@@ -672,8 +661,10 @@ function renderLegendButtons(){
   });
 }
 
+/* renderWaveSkipButton: screenState!=='game'なら常に非表示を先頭でガード */
 function renderWaveSkipButton(){
   const btn=document.getElementById('waveSkipBtn'); if(!btn || !game) return;
+  if(screenState!=='game'){ btn.style.display='none'; return; }
   const bossWaves=Object.keys(BOSS_TABLE).map(Number).sort((a,b)=>a-b);
   const lastClearedBoss=bossWaves.filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
   const isBossWave = !!BOSS_TABLE[game.wave];
@@ -682,13 +673,13 @@ function renderWaveSkipButton(){
   btn.disabled = (game.waveSkipCd||0)>0;
   btn.textContent = (game.waveSkipCd||0)>0 ? `SKIP(${Math.ceil(game.waveSkipCd)})` : 'ウェーブスキップ';
 }
+
 on('waveSkipBtn','click',()=>{
   if(!game || game.bossActive || (game.waveSkipCd||0)>0) return;
   const bossWaves=Object.keys(BOSS_TABLE).map(Number).sort((a,b)=>a-b);
   const lastClearedBoss=bossWaves.filter(w=>w<=gameData.maxWave).sort((a,b)=>b-a)[0]||0;
   if(!lastClearedBoss || game.wave>=lastClearedBoss || BOSS_TABLE[game.wave]) return;
   game.waveSkipCd=2;
-  /* スキップされるウェーブの敵を即座に一斉出現させる */
   const count=waveEnemyCount(game.wave);
   for(let i=0;i<count;i++){ game.enemies.push(spawnEnemy(game.wave)); }
   game.spawnQueue=0;
@@ -774,7 +765,7 @@ function renderSaveSlotDialog(){
 function openSaveDialog(){ renderSaveSlotDialog(); const el=document.getElementById('saveSlotDialog'); if(el) el.classList.remove('hidden'); }
 function closeSaveDialog(){ const el=document.getElementById('saveSlotDialog'); if(el) el.classList.add('hidden'); }
 
-/* syncScreenDom: screenState==='game' の時のみ body に in-battle クラスを付与 */
+/* syncScreenDom: waveSkipBtnをscreenState==='game'以外では常に非表示 */
 function syncScreenDom(){
   document.body.classList.toggle('in-battle', screenState==='game');
   ['titleScreen','menuScreen','settingsScreen','gameOverScreen','gameClearScreen'].forEach(id=>{
@@ -787,6 +778,9 @@ function syncScreenDom(){
   const coreModal=document.getElementById('coreModal'); if(coreModal) coreModal.classList.add('hidden');
   const gc=document.getElementById('globalCurrency');
   if(gc){ if(screenState==='menu'){ gc.style.display='flex'; renderGlobalCurrency(); } else { gc.style.display='none'; } }
+
+  const skipBtn=document.getElementById('waveSkipBtn');
+  if(skipBtn && screenState!=='game'){ skipBtn.style.display='none'; }
 
   if(screenState==='title'){ const el=document.getElementById('titleScreen'); if(el) el.classList.remove('hidden'); }
   else if(screenState==='menu'){ const el=document.getElementById('menuScreen'); if(el) el.classList.remove('hidden'); setText('menuMaxWave',gameData.maxWave); }
