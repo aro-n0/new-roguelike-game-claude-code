@@ -1,4 +1,4 @@
-/* main.js（完全版：BGM構成をタイトル/ステージ/リザルト/ボスの4系統へ再編。screenState遷移とボス出現/変身に連動して自動切替） */
+/* main.js（完全版：BGM遷移トリガーを新ルールに全面刷新、トークン回収範囲パーセンテージ方式に対応） */
 "use strict";
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
@@ -134,6 +134,9 @@ let previousScreen='title';
 let game=null;
 let lastTime=0;
 
+/* wave帯に応じた通常バトルBGMキーを返す（1〜20: battle1 / 21以降: stage2） */
+function battleBgmKeyForWave(wave){ return wave>=21? 'stage2':'battle1'; }
+
 function startRun(){
   W=canvas.width; H=canvas.height;
   game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],tokenPickups:[],swings:[],lightnings:[],fireballs:[],drones:[],
@@ -148,7 +151,7 @@ function startRun(){
   game.player.regenTickTimer=1;
   screenState='game'; syncScreenDom();
   showWaveBanner(1); AudioEngine.SE.waveStart();
-  BGMManager.switchTo('stage1');
+  BGMManager.switchTo(battleBgmKeyForWave(1),{fadeIn:true,gapMs:1000});
   lastTime=performance.now(); requestAnimationFrame(loop);
 }
 function showWaveBanner(w){ const el=document.getElementById('waveBanner'); if(!el) return; el.textContent='WAVE '+w; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
@@ -173,8 +176,8 @@ function triggerBoss(wave){
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.remove('hidden');
   const nameEl=document.getElementById('bossName'); if(nameEl) nameEl.textContent=game.boss.name;
   AudioEngine.SE.bossAppear();
-  if(wave===10){ BGMManager.switchTo('boss10p1'); }
-  else if(wave===20){ BGMManager.switchTo('boss20p1'); }
+  if(wave===10){ BGMManager.switchTo('boss10p1',{fadeIn:true,gapMs:1000}); }
+  else if(wave===20){ BGMManager.switchTo('boss20p1',{fadeIn:true,gapMs:1000}); }
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
 
@@ -208,16 +211,16 @@ function endBoss(){
   game.healItems.push({x:dropX,y:dropY,r:18,phase:0});
   if(bossTokenTotal>0) spawnBossTokenBurst(dropX,dropY,bossTokenTotal);
   game.boss=null; game.bossActive=false;
-  BGMManager.switchTo('stage1');
   if(wave>=50){ triggerGameClear(); return; }
   game.wave=wave+1; game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
   game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
+  BGMManager.switchTo(battleBgmKeyForWave(game.wave),{fadeIn:true,gapMs:1000});
   showWaveBanner(game.wave); AudioEngine.SE.waveStart();
 }
 
 function triggerGameClear(){
   game.running=false; AudioEngine.SE.gameClear();
-  BGMManager.switchTo('gameover');
+  BGMManager.switchTo('gameover',{fadeIn:false,gapMs:1000});
   gameData.maxWave=Math.max(gameData.maxWave,50); saveGame();
   setText('clearTime',fmtTime(game.elapsed));
   setText('clearKills',game.kills);
@@ -274,17 +277,18 @@ function updateVitalitySystems(dt){
   game.healItems=game.healItems.filter(h=>!h.collected);
 }
 
+/* トークン回収範囲: pickupRadius(スキルツリー側でパーセンテージ→半径換算済み) をそのまま加算判定に使用 */
 function updateTokenPickups(dt){
   const p=game.player;
   game.tokenPickups=game.tokenPickups||[];
-  const pickupR=(p.build && p.build.pickupRadius)||TOKEN_PICKUP_BASE_RADIUS;
+  const pickupExtra=(p.build && p.build.pickupRadius)||0;
   for(const t of game.tokenPickups){
     t.phase=(t.phase||0)+dt*3;
     if(t.burstDecay){
       t.x+=t.vx*dt; t.y+=t.vy*dt;
       t.vx*=0.9; t.vy*=0.9;
     }
-    if(!t.collected && dist(t.x,t.y,p.x,p.y)<(t.r||5)+pickupR){
+    if(!t.collected && dist(t.x,t.y,p.x,p.y)<(t.r||5)+p.r+pickupExtra){
       t.collected=true;
       const gained=Math.round(t.value);
       grantTokens(gained); game.tokensThisRun+=gained;
@@ -364,8 +368,7 @@ function update(dt){
 
   if(!game.bossActive){
     game.waveTimer+=dt; game.spawnTimer+=dt;
-    if(game.wave>=1 && game.wave<=19){ BGMManager.switchTo('stage1'); }
-    else if(game.wave>=21 && game.wave<=49){ BGMManager.switchTo('stage1'); }
+    BGMManager.switchTo(battleBgmKeyForWave(game.wave),{fadeIn:true,gapMs:1000});
     if(game.waveTimer>=game.waveDuration){
       const nextWave=game.wave+1;
       if(BOSS_TABLE[nextWave]){ game.wave=nextWave; triggerBoss(nextWave); }
@@ -470,6 +473,20 @@ function update(dt){
   if(p.hp<=0) endRun();
 }
 
+/* startTransform: 変身開始時にボスBGMを新規則（即時停止→1秒→フェードイン）で切り替え */
+function startTransform(b){
+  b.transforming=true;
+  b.transformPhase='zoomin';
+  b.transformTimer=0;
+  game.cameraZoom={active:true,target:b,scale:1,phase:'zoomin'};
+  game.playerFrozen=true;
+  game.player.invuln=999;
+  game.bullets=game.bullets.filter(bl=>bl.owner!=='enemy');
+  game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
+  if(b.wave===10){ BGMManager.switchTo('boss10p2',{fadeIn:true,gapMs:1000}); }
+  else if(b.wave===20){ BGMManager.switchTo('boss20p2',{fadeIn:true,gapMs:1000}); }
+}
+
 function updateHUD(){
   const p=game.player;
   const hpBar=document.getElementById('hpBar'); if(hpBar) hpBar.style.width=Math.max(0,(p.hp/p.maxHp*100))+'%';
@@ -482,7 +499,7 @@ function updateHUD(){
 
 function endRun(){
   game.running=false; AudioEngine.SE.gameOver();
-  BGMManager.switchTo('gameover');
+  BGMManager.switchTo('gameover',{fadeIn:false,gapMs:1000});
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.add('hidden');
   const tokensEarned=Math.round(game.tokensThisRun||0);
   gameData.maxWave=Math.max(gameData.maxWave,game.wave); saveGame();
@@ -713,8 +730,6 @@ function renderWaveSkipButton(){
   btn.disabled = (game.waveSkipCd||0)>0;
   btn.textContent = (game.waveSkipCd||0)>0 ? `SKIP(${Math.ceil(game.waveSkipCd)})` : 'ウェーブスキップ';
 }
-on_lateBind_waveSkip();
-function on_lateBind_waveSkip(){}
 function bindWaveSkipButton(){
   const btn=document.getElementById('waveSkipBtn');
   if(!btn) return;
@@ -810,6 +825,7 @@ function renderSaveSlotDialog(){
 function openSaveDialog(){ renderSaveSlotDialog(); const el=document.getElementById('saveSlotDialog'); if(el) el.classList.remove('hidden'); }
 function closeSaveDialog(){ const el=document.getElementById('saveSlotDialog'); if(el) el.classList.add('hidden'); }
 
+/* syncScreenDom: BGMは画面遷移では一切切り替えない（明示的なイベントのみで切替、シームレス継続を維持） */
 function syncScreenDom(){
   document.body.classList.toggle('in-battle', screenState==='game');
   ['titleScreen','menuScreen','settingsScreen','gameOverScreen','gameClearScreen'].forEach(id=>{
@@ -825,11 +841,6 @@ function syncScreenDom(){
 
   const skipBtn=document.getElementById('waveSkipBtn');
   if(skipBtn && screenState!=='game'){ skipBtn.style.display='none'; }
-
-  /* BGM: バトル画面（game）以外は常にタイトルBGM。リザルト画面（gameover/gameclear）は個別に切替済みのため除外 */
-  if(screenState!=='game' && screenState!=='gameover' && screenState!=='gameclear'){
-    BGMManager.switchTo('title');
-  }
 
   if(screenState==='title'){ const el=document.getElementById('titleScreen'); if(el) el.classList.remove('hidden'); }
   else if(screenState==='menu'){ const el=document.getElementById('menuScreen'); if(el) el.classList.remove('hidden'); setText('menuMaxWave',gameData.maxWave); }
@@ -885,6 +896,7 @@ on('btnPauseToTitle','click',()=>{
   AudioEngine.SE.click();
   if(game){ game.running=false; game.paused=false; }
   const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
+  BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
   screenState='title'; syncScreenDom();
 });
 window.addEventListener('keydown',(e)=>{
@@ -911,9 +923,17 @@ on('btnSettingsBack','click',()=>{ AudioEngine.SE.click(); screenState=previousS
 on('btnPlay','click',()=>{ ensureAudio(); AudioEngine.SE.click(); startRun(); });
 on('btnMenuSkillTree','click',()=>{ ensureAudio(); AudioEngine.SE.click(); screenState='skilltree'; syncScreenDom(); });
 
-on('btnNext','click',()=>{ AudioEngine.SE.click(); screenState='skilltree'; syncScreenDom(); });
+on('btnNext','click',()=>{
+  AudioEngine.SE.click();
+  BGMManager.switchTo('stage1',{fadeIn:true,gapMs:1000});
+  screenState='skilltree'; syncScreenDom();
+});
 on('btnTreeExit','click',()=>{ AudioEngine.SE.click(); screenState='menu'; syncScreenDom(); });
-on('btnClearBack','click',()=>{ AudioEngine.SE.click(); screenState='title'; syncScreenDom(); });
+on('btnClearBack','click',()=>{
+  AudioEngine.SE.click();
+  BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
+  screenState='title'; syncScreenDom();
+});
 
 on('btnRespec','click',()=>{
   const slot=gameData.slots[gameData.activeSlot];
@@ -934,3 +954,5 @@ bindWaveSkipButton();
 
 screenState='title'; previousScreen='title';
 syncScreenDom();
+ensureAudio();
+BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
