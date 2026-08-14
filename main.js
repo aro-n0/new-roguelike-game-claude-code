@@ -1,4 +1,4 @@
-/* main.js（完全版：BGM遷移トリガーを新ルールに全面刷新、トークン回収範囲パーセンテージ方式に対応） */
+/* main.js（完全版：BGM遷移トリガー全面刷新＆タイトルトラック統一対応済） */
 "use strict";
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
@@ -134,8 +134,8 @@ let previousScreen='title';
 let game=null;
 let lastTime=0;
 
-/* wave帯に応じた通常バトルBGMキーを返す（1〜20: battle1 / 21以降: stage2） */
-function battleBgmKeyForWave(wave){ return wave>=21? 'stage2':'battle1'; }
+/* wave帯に応じた通常バトルBGMキー: 1〜19=stage1 / 21〜49=stage2（Wave20/50等ボス戦は個別処理） */
+function battleBgmKeyForWave(wave){ return wave>=21? 'stage2':'stage1'; }
 
 function startRun(){
   W=canvas.width; H=canvas.height;
@@ -923,9 +923,10 @@ on('btnSettingsBack','click',()=>{ AudioEngine.SE.click(); screenState=previousS
 on('btnPlay','click',()=>{ ensureAudio(); AudioEngine.SE.click(); startRun(); });
 on('btnMenuSkillTree','click',()=>{ ensureAudio(); AudioEngine.SE.click(); screenState='skilltree'; syncScreenDom(); });
 
+/* btnNext: リザルト画面から「次へ」でスキルツリーへ。gameoverから離脱するのでtitleトラックへ切替 */
 on('btnNext','click',()=>{
   AudioEngine.SE.click();
-  BGMManager.switchTo('stage1',{fadeIn:true,gapMs:1000});
+  BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
   screenState='skilltree'; syncScreenDom();
 });
 on('btnTreeExit','click',()=>{ AudioEngine.SE.click(); screenState='menu'; syncScreenDom(); });
@@ -952,6 +953,8 @@ on('seVol','input',(e)=>{ AudioEngine.setVol(gameData.settings.bgm,e.target.valu
 })();
 bindWaveSkipButton();
 
+/* サイト起動時（画面1）: titleトラックを1秒の間を置いてフェードイン再生。
+   スキルツリー画面も同じtitleトラックを継続使用するため、初期化時の1回のみ呼び出せば足りる。 */
 screenState='title'; previousScreen='title';
 syncScreenDom();
 ensureAudio();
