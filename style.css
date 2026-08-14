@@ -98,7 +98,31 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .clear-h2{color:var(--neon-yellow)!important;text-shadow:0 0 14px var(--neon-yellow)!important;}
 .stat-line{display:flex;justify-content:space-between;font-size:14px;color:var(--neon-cyan);border-bottom:1px dashed rgba(0,255,242,0.25);padding:4px 0;}
 .stat-line span:last-child{color:var(--neon-yellow);text-shadow:0 0 6px var(--neon-yellow);}
-.settings-row{display:flex;flex-direction:column;gap:14px;align-items:center;color:var(--neon-cyan);}
+
+/* 設定画面の音量バーをflexで左右・上下中央揃えに修正 */
+.settings-row{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  align-items:stretch;
+  color:var(--neon-cyan);
+}
+.settings-row label{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  width:280px;
+  max-width:80vw;
+}
+.settings-row label span.settings-label-text{
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.settings-row input[type="range"]{
+  flex:1 1 auto;
+  min-width:120px;
+}
 
 /* Skill tree floating overlay (canvas is 100% behind it) */
 #skilltreeOverlay{position:absolute;inset:0;z-index:40;pointer-events:none;}
@@ -145,7 +169,7 @@ canvas{position:absolute;top:0;left:0;display:block;background:radial-gradient(e
 .legend-cd{ font-size:10px; color:var(--neon-yellow); }
 
 /* Legend能力UI */
-/* style.css（差分：Legendバーを最前面固定） */
+/* Legendバーを最前面固定 */
 #legendBar{ position:fixed; bottom:16px; left:16px; z-index:9999; display:flex; gap:8px; pointer-events:none; }
 .legend-icon{ position:relative; width:48px; height:48px; border-radius:10px; border:2px solid var(--neon-magenta); background:rgba(10,12,24,0.85); overflow:hidden; box-shadow:0 0 10px rgba(255,0,229,0.4); }
 .legend-icon .li-glyph{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:22px; }
