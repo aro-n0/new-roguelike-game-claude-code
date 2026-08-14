@@ -2,6 +2,22 @@
 
 function lerp(x,x1,y1,x2,y2){ if(x2===x1) return y1; return y1+(y2-y1)*(x-x1)/(x2-x1); }
 
+/* イージング関数：内側から外側へバックしながら拡大 */
+function easeOutBackStar(t){ const c1=1.70158,c3=c1+1; const tt=Math.min(1,Math.max(0,t)); return 1+c3*Math.pow(tt-1,3)+c1*Math.pow(tt-1,2); }
+
+/* 六芒星を12頂点（外側/内側交互）の単一連続パスとして描画。innerR=outerR/√3 で正六芒星比率 */
+function drawHexagramPath(cx,cy,outerR){
+  const innerR=outerR/Math.sqrt(3);
+  ctx.beginPath();
+  for(let k=0;k<12;k++){
+    const angle=(-90+k*30)*Math.PI/180;
+    const r = (k%2===0)? outerR : innerR;
+    const x=cx+Math.cos(angle)*r, y=cy+Math.sin(angle)*r;
+    if(k===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+}
+
 /* 敵種別の出現重み（Wave帯ごとに線形補間） */
 function getWaveEnemyWeights(wave){
   if(wave<10){
@@ -273,10 +289,14 @@ function updateTransform(b,dt){
 
   if(b.transformPhase==='zoomin'){
     game.cameraZoom.scale=1+(b.transformTimer/zoomInDur)*0.8;
-    if(b.transformTimer>=zoomInDur){ b.transformPhase='morph'; b.transformTimer=0; }
+    if(b.transformTimer>=zoomInDur){
+      b.transformPhase='morph';
+      b.transformTimer=0;
+      b.shape='hexagram'; /* morph開始時点で形状を六芒星にセット */
+    }
   }
   else if(b.transformPhase==='morph'){
-    /* 三角形→六芒星への幾何拡張（各辺中央から三角が競り出す進行度） */
+    /* 六芒星への幾何拡張（内側から外側へイージング拡大） */
     b.morphProgress=Math.min(1,b.transformTimer/morphDur);
     if(b.transformTimer>=morphDur){
       b.morphProgress=1;
@@ -540,7 +560,7 @@ function updateFortressLaser(b,dt){
   }
 }
 
-/* ---- 六芒星（✡）の正しい幾何描画: 正三角形2つの重ね合わせ ---- */
+/* drawFortressShape: hexagram描画部分を単一パス版へ置き換え、morph中はeaseOutBackで内側から拡大 */
 function drawFortressShape(b){
   ctx.save();
   const flash=b.hitFlash>0?'#fff':b.color;
@@ -548,19 +568,11 @@ function drawFortressShape(b){
   ctx.translate(ox,oy);
   ctx.shadowColor=b.color; ctx.shadowBlur=24; ctx.fillStyle=flash; ctx.strokeStyle=b.color; ctx.lineWidth=3;
 
-  if(b.shape==='hexagram' || (b.transforming && b.transformPhase==='morph')){
-    const morph=b.transforming? (b.morphProgress||0) : 1;
-    /* 基本正三角形 */
-    drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,6);
+  if(b.shape==='hexagram'){
+    const morphRaw=b.transforming? (b.morphProgress||0) : 1;
+    const eased=easeOutBackStar(morphRaw);
+    drawHexagramPath(b.x,b.y,b.r*Math.max(0.001,eased));
     ctx.fill(); ctx.stroke();
-    if(morph>0){
-      /* 逆三角形をmorph進行度に応じて重ね、正六芒星を形成 */
-      ctx.save();
-      ctx.globalAlpha=Math.min(1,morph);
-      drawRoundedPolygon(b.x,b.y,b.r*morph,3,Math.PI/2,6);
-      ctx.fill(); ctx.stroke();
-      ctx.restore();
-    }
   } else if(b.shape==='triangle'){
     drawRoundedPolygon(b.x,b.y,b.r,3,-Math.PI/2,8);
     ctx.fill(); ctx.stroke();
@@ -576,7 +588,6 @@ function drawFortressShape(b){
   ctx.translate(-ox,-oy);
   ctx.restore();
 
-  /* 大クールダウン中の360度回転演出（見た目のみ回転を重ねて表現） */
   if(b.cycleState==='cooldown' && (b.rotateAngle||0)>0){
     ctx.save();
     ctx.translate(b.x,b.y); ctx.rotate(b.rotateAngle);
@@ -758,8 +769,7 @@ function drawBossShape(b){
   else if(b.shape==='heptagon') drawRoundedPolygon(0,0,b.r,7,-Math.PI/2,8);
   else if(b.shape==='triangle') drawRoundedPolygon(0,0,b.r,3,-Math.PI/2,8);
   else if(b.shape==='hexagram'){
-    drawRoundedPolygon(0,0,b.r,3,-Math.PI/2,6);
-    drawRoundedPolygon(0,0,b.r,3,Math.PI/2,6);
+    drawHexagramPath(0,0,b.r);
   }
   else { ctx.beginPath(); ctx.arc(0,0,b.r,0,Math.PI*2); }
   ctx.fill(); ctx.stroke();
