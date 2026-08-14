@@ -1,4 +1,4 @@
-/* audio.js（完全版：AudioEngine + BGMManager。TRACKSにタイトル/ゲームオーバー用BGMを追加） */
+/* audio.js（完全版：AudioEngine + BGMManager — 即時停止+1秒無音+フェードイン方式へ全面刷新） */
 "use strict";
 
 const AudioEngine=(function(){
@@ -87,32 +87,18 @@ const AudioEngine=(function(){
     lifedrainOn(){ tone({freq:90,slideTo:50,dur:0.5,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.18,filterFreq:250}); }
   };
 
-  function startBGM(boss){
-    if(!ctx) return; stopBGM();
-    const baseFreqs = boss? [41,82,61] : [55,110,165];
-    baseFreqs.forEach((f,i)=>{
-      const osc=ctx.createOscillator(); osc.type=boss?(i===2?'sawtooth':'square'):(i===2?'square':'sawtooth'); osc.frequency.value=f;
-      const g=ctx.createGain(); g.gain.value=i===0?(boss?0.22:0.18):(i===1?0.1:0.05);
-      const filter=ctx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=boss?350:500;
-      const lfo=ctx.createOscillator(); lfo.frequency.value=boss?0.15+i*0.05:0.07+i*0.02;
-      const lfoGain=ctx.createGain(); lfoGain.gain.value=boss?260:180;
-      lfo.connect(lfoGain); lfoGain.connect(filter.frequency);
-      osc.connect(filter); filter.connect(g); g.connect(bgmGain);
-      osc.start(); lfo.start(); bgmNodes.push(osc,lfo);
-    });
-    const notes=boss?[110,131,98,116]:[220,262,330,392,330,262]; let idx=0;
-    const arp=setInterval(()=>{ if(!ctx){clearInterval(arp);return;} tone({freq:notes[idx%notes.length],dur:boss?0.5:0.35,type:'triangle',gain:boss?0.08:0.05}); idx++; },boss?420:600);
-    bgmNodes.push({stop:()=>clearInterval(arp)});
-  }
-  function stopBGM(){ bgmNodes.forEach(n=>{ try{n.stop&&n.stop();}catch(e){} }); bgmNodes=[]; }
+  function startBGM(){ /* 廃止: BGMManagerのファイル再生に統一。互換のため空実装として残す */ }
+  function stopBGM(){ /* 廃止: BGMManagerが管理するため何もしない */ }
 
   return {init,SE,startBGM,stopBGM,setVol,get ctx(){return ctx;}};
 })();
 
-/* ---- BGMManager: ファイルベースBGM（assets/bgm/*.mp3）の自動切替・クロスフェード管理 ---- */
+/* ---- BGMManager: 即時停止 → 1秒無音 → 再生（既定はフェードイン、gameoverのみ即時フル音量） ---- */
 const BGMManager=(function(){
   const TRACKS={
     title:'assets/bgm/bgm_title_01.mp3',
+    battle1:'assets/bgm/bgm_battle_01.mp3',
+    stage2:'assets/bgm/bgm_stage_02.mp3',
     stage1:'assets/bgm/bgm_stage_01.mp3',
     gameover:'assets/bgm/bgm_gameover.mp3',
     boss10p1:'assets/bgm/bgm_boss10_phase1.mp3',
@@ -123,87 +109,68 @@ const BGMManager=(function(){
   let audioEl=null;
   let currentKey=null;
   let fadeTimer=null;
+  let gapTimer=null;
   let targetVolume=0.35;
-  let pendingSwitchKey=null;
 
   function ensureElement(){
-    if(!audioEl){
-      audioEl=new Audio();
-      audioEl.loop=true;
-      audioEl.volume=0;
-    }
+    if(!audioEl){ audioEl=new Audio(); audioEl.loop=true; audioEl.volume=0; }
     return audioEl;
   }
-  function setBaseVolume(v){ targetVolume=v; if(audioEl && !fadeTimer) audioEl.volume=v; }
-  function clearFade(){ if(fadeTimer){ clearInterval(fadeTimer); fadeTimer=null; } }
-
-  function playImmediate(key){
-    if(!key || !TRACKS[key]) return;
-    const el=ensureElement();
-    if(currentKey===key && !el.paused){ el.volume=targetVolume; return; }
-    clearFade();
-    try{
-      el.src=TRACKS[key];
-      el.currentTime=0;
-      el.volume=targetVolume;
-      el.play().catch(()=>{});
-      currentKey=key;
-    }catch(e){}
+  function clearTimers(){
+    if(fadeTimer){ clearInterval(fadeTimer); fadeTimer=null; }
+    if(gapTimer){ clearTimeout(gapTimer); gapTimer=null; }
+  }
+  function setVolume(v){
+    targetVolume=v;
+    if(audioEl && !fadeTimer) audioEl.volume=v;
   }
 
-  function fadeOut(durationMs,onComplete){
-    durationMs=durationMs||1500;
-    const el=ensureElement();
-    clearFade();
-    if(el.paused || el.volume<=0.001){
-      el.pause();
-      if(onComplete) onComplete();
-      return;
-    }
-    const startVol=el.volume;
+  function fadeInTo(el,durationMs){
+    clearTimers();
     const startTime=performance.now();
+    el.volume=0;
     fadeTimer=setInterval(()=>{
       const t=(performance.now()-startTime)/durationMs;
-      if(t>=1){
-        el.volume=0; el.pause();
-        clearFade();
-        currentKey=null;
-        if(onComplete) onComplete();
-      } else {
-        el.volume=startVol*(1-t);
-      }
+      if(t>=1){ el.volume=targetVolume; clearInterval(fadeTimer); fadeTimer=null; }
+      else { el.volume=targetVolume*t; }
     },30);
   }
 
-  function switchTo(key){
-    if(!key || key===currentKey) return;
-    playImmediate(key);
+  /* switchTo: 同じ曲ならシームレス継続。異なる曲なら即時停止→1秒無音→再生（既定フェードイン） */
+  function switchTo(key,opts){
+    opts=opts||{};
+    const fadeIn = opts.fadeIn!==false; /* 既定true */
+    const gapMs = opts.gapMs!==undefined? opts.gapMs : 1000;
+    if(!key || !TRACKS[key]) return;
+    const el=ensureElement();
+    if(currentKey===key && !el.paused){ return; } /* 継続再生、何もしない */
+
+    clearTimers();
+    el.pause(); /* 即時停止（フェードアウトなし） */
+    currentKey=null;
+
+    gapTimer=setTimeout(()=>{
+      try{
+        el.src=TRACKS[key];
+        el.currentTime=0;
+        if(fadeIn){
+          el.volume=0;
+          el.play().catch(()=>{});
+          fadeInTo(el,800);
+        } else {
+          el.volume=targetVolume;
+          el.play().catch(()=>{});
+        }
+        currentKey=key;
+      }catch(e){}
+    },gapMs);
   }
-  function fadeOutThenQueue(key,durationMs){
-    pendingSwitchKey=key;
-    fadeOut(durationMs,()=>{
-      if(pendingSwitchKey){ playImmediate(pendingSwitchKey); pendingSwitchKey=null; }
-    });
-  }
-  function playQueuedNow(key){
-    clearFade();
-    pendingSwitchKey=null;
-    playImmediate(key);
-  }
+
   function stop(){
-    clearFade();
-    if(audioEl){ audioEl.pause(); }
+    clearTimers();
+    if(audioEl) audioEl.pause();
     currentKey=null;
   }
-  function setVolume(v){ setBaseVolume(v); }
 
-  return {
-    switchTo,
-    fadeOutThenQueue,
-    playQueuedNow,
-    fadeOut,
-    stop,
-    setVolume,
-    get currentKey(){ return currentKey; }
-  };
+  return { switchTo, stop, setVolume, get currentKey(){ return currentKey; } };
 })();
