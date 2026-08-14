@@ -1,4 +1,4 @@
-/* audio.js（完全版：AudioEngine + BGMManager — 即時停止+1秒無音+フェードイン方式へ全面刷新） */
+/* audio.js（完全版：AudioEngine + BGMManager。playQueuedNow未定義エラーを解消し、TRACKSを整理） */
 "use strict";
 
 const AudioEngine=(function(){
@@ -87,19 +87,18 @@ const AudioEngine=(function(){
     lifedrainOn(){ tone({freq:90,slideTo:50,dur:0.5,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.18,filterFreq:250}); }
   };
 
-  function startBGM(){ /* 廃止: BGMManagerのファイル再生に統一。互換のため空実装として残す */ }
-  function stopBGM(){ /* 廃止: BGMManagerが管理するため何もしない */ }
+  function startBGM(){ /* 廃止: BGMManagerのファイル再生に統一。互換のため空実装 */ }
+  function stopBGM(){ /* 廃止: 互換のため空実装 */ }
 
   return {init,SE,startBGM,stopBGM,setVol,get ctx(){return ctx;}};
 })();
 
-/* ---- BGMManager: 即時停止 → 1秒無音 → 再生（既定はフェードイン、gameoverのみ即時フル音量） ---- */
+/* ---- BGMManager: 即時停止 → 1秒無音 → 再生（既定フェードイン、gameoverのみ即時フル音量） ---- */
 const BGMManager=(function(){
   const TRACKS={
     title:'assets/bgm/bgm_title_01.mp3',
-    battle1:'assets/bgm/bgm_battle_01.mp3',
-    stage2:'assets/bgm/bgm_stage_02.mp3',
     stage1:'assets/bgm/bgm_stage_01.mp3',
+    stage2:'assets/bgm/bgm_stage_02.mp3',
     gameover:'assets/bgm/bgm_gameover.mp3',
     boss10p1:'assets/bgm/bgm_boss10_phase1.mp3',
     boss10p2:'assets/bgm/bgm_boss10_phase2.mp3',
@@ -124,9 +123,8 @@ const BGMManager=(function(){
     targetVolume=v;
     if(audioEl && !fadeTimer) audioEl.volume=v;
   }
-
   function fadeInTo(el,durationMs){
-    clearTimers();
+    clearInterval(fadeTimer); fadeTimer=null;
     const startTime=performance.now();
     el.volume=0;
     fadeTimer=setInterval(()=>{
@@ -136,7 +134,26 @@ const BGMManager=(function(){
     },30);
   }
 
-  /* switchTo: 同じ曲ならシームレス継続。異なる曲なら即時停止→1秒無音→再生（既定フェードイン） */
+  /* 即座に指定トラックを再生開始する内部関数（無音間・停止処理は行わない） */
+  function playNow(key,fadeIn){
+    if(!key || !TRACKS[key]) return;
+    const el=ensureElement();
+    try{
+      el.src=TRACKS[key];
+      el.currentTime=0;
+      if(fadeIn){
+        el.volume=0;
+        el.play().catch(()=>{});
+        fadeInTo(el,800);
+      } else {
+        el.volume=targetVolume;
+        el.play().catch(()=>{});
+      }
+      currentKey=key;
+    }catch(e){}
+  }
+
+  /* switchTo: 同じ曲ならシームレス継続。異なる曲なら即時停止→1秒無音→再生 */
   function switchTo(key,opts){
     opts=opts||{};
     const fadeIn = opts.fadeIn!==false; /* 既定true */
@@ -146,24 +163,20 @@ const BGMManager=(function(){
     if(currentKey===key && !el.paused){ return; } /* 継続再生、何もしない */
 
     clearTimers();
-    el.pause(); /* 即時停止（フェードアウトなし） */
+    el.pause();
     currentKey=null;
 
-    gapTimer=setTimeout(()=>{
-      try{
-        el.src=TRACKS[key];
-        el.currentTime=0;
-        if(fadeIn){
-          el.volume=0;
-          el.play().catch(()=>{});
-          fadeInTo(el,800);
-        } else {
-          el.volume=targetVolume;
-          el.play().catch(()=>{});
-        }
-        currentKey=key;
-      }catch(e){}
-    },gapMs);
+    gapTimer=setTimeout(()=>{ playNow(key,fadeIn); },gapMs);
+  }
+
+  /* playQueuedNow: 何らかの理由で即座に指定トラックを鳴らしたい場合の安全なエントリポイント。
+     既に同じ曲が再生中なら何もしない。無音の間を待たず、必要ならフェードインで即再生する。
+     （enemy.js からの呼び出しで未定義エラーが出ないよう必ずエクスポートする） */
+  function playQueuedNow(key,fadeIn){
+    if(!key || !TRACKS[key]) return;
+    if(currentKey===key) return;
+    clearTimers();
+    playNow(key, fadeIn!==false);
   }
 
   function stop(){
@@ -172,5 +185,5 @@ const BGMManager=(function(){
     currentKey=null;
   }
 
-  return { switchTo, stop, setVolume, get currentKey(){ return currentKey; } };
+  return { switchTo, playQueuedNow, stop, setVolume, get currentKey(){ return currentKey; } };
 })();
