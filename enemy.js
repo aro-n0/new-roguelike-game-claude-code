@@ -278,7 +278,7 @@ function updateTransform(b,dt){
         game.cameraZoom={active:false,target:null,scale:1,phase:null};
         game.playerFrozen=false; game.player.invuln=0;
         game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
-        if(b.wave===10){ BGMManager.playQueuedNow('boss10p2'); }
+        if(b.wave===10 && BGMManager.playQueuedNow){ BGMManager.playQueuedNow('boss10p2'); }
       }
     }
     return;
@@ -347,7 +347,7 @@ function updateTransform(b,dt){
       game.playerFrozen=false; game.player.invuln=0;
       game.bullets=game.bullets.filter(bl=>!bl.transformImmune);
       b.cycleState='cooldown'; b.cycleTimer=7;
-      if(b.wave===20){ BGMManager.playQueuedNow('boss20p2'); }
+      if(b.wave===20 && BGMManager.playQueuedNow){ BGMManager.playQueuedNow('boss20p2'); }
     }
   }
 }
