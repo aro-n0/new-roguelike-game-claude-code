@@ -1,4 +1,4 @@
-/* audio.js（完全版：AudioEngine + BGMManager。playQueuedNow未定義エラーを解消し、TRACKSを整理） */
+/* audio.js（完全版：初期化タイミング修正、Wave帯BGM切替ロジックはmain.js側で対応） */
 "use strict";
 
 const AudioEngine=(function(){
@@ -87,13 +87,12 @@ const AudioEngine=(function(){
     lifedrainOn(){ tone({freq:90,slideTo:50,dur:0.5,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.18,filterFreq:250}); }
   };
 
-  function startBGM(){ /* 廃止: BGMManagerのファイル再生に統一。互換のため空実装 */ }
-  function stopBGM(){ /* 廃止: 互換のため空実装 */ }
+  function startBGM(){}
+  function stopBGM(){}
 
   return {init,SE,startBGM,stopBGM,setVol,get ctx(){return ctx;}};
 })();
 
-/* ---- BGMManager: 即時停止 → 1秒無音 → 再生（既定フェードイン、gameoverのみ即時フル音量） ---- */
 const BGMManager=(function(){
   const TRACKS={
     title:'assets/bgm/bgm_title_01.mp3',
@@ -110,6 +109,7 @@ const BGMManager=(function(){
   let fadeTimer=null;
   let gapTimer=null;
   let targetVolume=0.35;
+  let initialized=false;
 
   function ensureElement(){
     if(!audioEl){ audioEl=new Audio(); audioEl.loop=true; audioEl.volume=0; }
@@ -133,57 +133,52 @@ const BGMManager=(function(){
       else { el.volume=targetVolume*t; }
     },30);
   }
-
-  /* 即座に指定トラックを再生開始する内部関数（無音間・停止処理は行わない） */
   function playNow(key,fadeIn){
     if(!key || !TRACKS[key]) return;
     const el=ensureElement();
     try{
       el.src=TRACKS[key];
       el.currentTime=0;
-      if(fadeIn){
-        el.volume=0;
-        el.play().catch(()=>{});
-        fadeInTo(el,800);
-      } else {
-        el.volume=targetVolume;
-        el.play().catch(()=>{});
-      }
+      if(fadeIn){ el.volume=0; el.play().catch(()=>{}); fadeInTo(el,800); }
+      else { el.volume=targetVolume; el.play().catch(()=>{}); }
       currentKey=key;
     }catch(e){}
   }
-
-  /* switchTo: 同じ曲ならシームレス継続。異なる曲なら即時停止→1秒無音→再生 */
   function switchTo(key,opts){
     opts=opts||{};
-    const fadeIn = opts.fadeIn!==false; /* 既定true */
+    const fadeIn = opts.fadeIn!==false;
     const gapMs = opts.gapMs!==undefined? opts.gapMs : 1000;
     if(!key || !TRACKS[key]) return;
     const el=ensureElement();
-    if(currentKey===key && !el.paused){ return; } /* 継続再生、何もしない */
-
+    if(currentKey===key && !el.paused){ return; }
     clearTimers();
     el.pause();
     currentKey=null;
-
     gapTimer=setTimeout(()=>{ playNow(key,fadeIn); },gapMs);
   }
-
-  /* playQueuedNow: 何らかの理由で即座に指定トラックを鳴らしたい場合の安全なエントリポイント。
-     既に同じ曲が再生中なら何もしない。無音の間を待たず、必要ならフェードインで即再生する。
-     （enemy.js からの呼び出しで未定義エラーが出ないよう必ずエクスポートする） */
   function playQueuedNow(key,fadeIn){
     if(!key || !TRACKS[key]) return;
     if(currentKey===key) return;
     clearTimers();
     playNow(key, fadeIn!==false);
   }
+  function stop(){ clearTimers(); if(audioEl) audioEl.pause(); currentKey=null; }
 
-  function stop(){
-    clearTimers();
-    if(audioEl) audioEl.pause();
-    currentKey=null;
+  /* 初回起動時: ユーザー操作(クリック/タッチ/キー)を1回検知したらタイトルBGMを1秒後に開始する。
+     ブラウザの自動再生制限を回避するための保険。 */
+  function bootstrap(){
+    if(initialized) return;
+    initialized=true;
+    const start=()=>{
+      window.removeEventListener('pointerdown',start);
+      window.removeEventListener('keydown',start);
+      switchTo('title',{fadeIn:true,gapMs:1000});
+    };
+    window.addEventListener('pointerdown',start,{once:true});
+    window.addEventListener('keydown',start,{once:true});
+    /* 自動再生が許可されている環境向けにも即時試行 */
+    switchTo('title',{fadeIn:true,gapMs:1000});
   }
 
-  return { switchTo, playQueuedNow, stop, setVolume, get currentKey(){ return currentKey; } };
+  return { switchTo, playQueuedNow, stop, setVolume, bootstrap, get currentKey(){ return currentKey; } };
 })();
