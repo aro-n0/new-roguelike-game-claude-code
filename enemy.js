@@ -51,7 +51,7 @@ function waveEnemyCount(wave){
   return Math.round(lerp(wave,21,35,49,80));
 }
 
-/* spawnEnemy: HP/攻撃力をWave1〜49で線形補間（五角形HPは30→9000へ修正） */
+/* spawnEnemy: HP/攻撃力をWave1〜49で線形補間 */
 function spawnEnemy(wave){
   const edge=Math.floor(Math.random()*4); let x,y; const margin=60;
   if(edge===0){x=-margin;y=Math.random()*H;} else if(edge===1){x=W+margin;y=Math.random()*H;}
@@ -65,7 +65,7 @@ function spawnEnemy(wave){
     dmg=lerp(wave,1,4,49,100);
     spd=70*(1+Math.min(0.6,(wave-1)*0.02)); r=16; color='#ff3860'; shape='square';
   } else if(type==='pentagon'){
-    hp=lerp(wave,1,30,49,9000); /* 修正: 30→9000 */
+    hp=lerp(wave,1,30,49,9000);
     dmg=lerp(wave,1,2,49,110);
     spd=32*(1+Math.min(0.6,(wave-1)*0.015)); r=24; color='#a600ff'; shape='pentagon';
   } else {
@@ -241,7 +241,6 @@ function startTransform(b){
   game.bullets=game.bullets.filter(bl=>bl.owner!=='enemy');
   game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
 
-  /* Wave10/20ボスのBGMを1.5秒でフェードアウトし、演出完了時に第2形態BGMを再生するようキューイング */
   if(b.wave===10){ BGMManager.fadeOutThenQueue('boss10p2',1500); }
   else if(b.wave===20){ BGMManager.fadeOutThenQueue('boss20p2',1500); }
 }
@@ -258,7 +257,7 @@ function updateTransform(b,dt){
   const isFortress=b.type==='fortress';
 
   if(!isFortress){
-    /* Wave10ボス（既存フロー維持） */
+    /* Wave10ボス */
     const zoomInDur=0.8, freezeDur=5, shakeDur=4, flashDur=0.4, zoomOutDur=0.8;
     if(b.transformPhase==='zoomin'){
       game.cameraZoom.scale=1+(b.transformTimer/zoomInDur)*0.8;
@@ -284,7 +283,7 @@ function updateTransform(b,dt){
     return;
   }
 
-  /* Wave20（fortress）: 指定順序を厳密固定 */
+  /* Wave20（fortress） */
   const zoomInDur=0.8, morphDur=1.2, flickerDur=1.6, blackoutDur=3.0, flashDur=0.3, postDur=2.0, zoomOutDur=0.8;
 
   if(b.transformPhase==='zoomin'){
@@ -292,21 +291,19 @@ function updateTransform(b,dt){
     if(b.transformTimer>=zoomInDur){
       b.transformPhase='morph';
       b.transformTimer=0;
-      b.shape='hexagram'; /* morph開始時点で形状を六芒星にセット */
+      b.shape='hexagram';
     }
   }
   else if(b.transformPhase==='morph'){
-    /* 六芒星への幾何拡張（内側から外側へイージング拡大） */
     b.morphProgress=Math.min(1,b.transformTimer/morphDur);
     if(b.transformTimer>=morphDur){
       b.morphProgress=1;
-      b.shape='hexagram'; /* 形状確定後に点滅フェーズへ */
+      b.shape='hexagram';
       b.transformPhase='flicker'; b.transformTimer=0;
       b.flickerColor='#ffbe0b';
     }
   }
   else if(b.transformPhase==='flicker'){
-    /* ジッ、ジッ、ジジジ…不規則点滅（ネオンイエロー⇄灰色） */
     if(Math.random()<0.35){ AudioEngine.SE.transformSpark(); }
     b.color = Math.random()<0.5 ? '#ffbe0b' : '#5a6072';
     if(b.transformTimer>=flickerDur){
@@ -315,17 +312,15 @@ function updateTransform(b,dt){
     }
   }
   else if(b.transformPhase==='blackout'){
-    /* 3秒間完全な灰色に暗転 */
     b.color='#3a3f58';
     if(b.transformTimer>=blackoutDur){
-      applyFormChange(b); /* formTier=2, colorをyellow初期値へ（直後にflashで赤へ差し替え） */
+      applyFormChange(b);
       b.color='#3a3f58';
       b.transformPhase='flash'; b.transformTimer=0;
-      AudioEngine.SE.transformDeepImpact(); /* ヴォンッ！ */
+      AudioEngine.SE.transformDeepImpact();
     }
   }
   else if(b.transformPhase==='flash'){
-    /* ヴォンッ！と共に鮮やかなネオンレッドへ変化 */
     b.color='#ff2b4d';
     b.flashAlpha=Math.max(0,1-(b.transformTimer/flashDur));
     if(b.transformTimer>=flashDur){
@@ -333,7 +328,6 @@ function updateTransform(b,dt){
     }
   }
   else if(b.transformPhase==='post'){
-    /* 2秒間静止 */
     b.color='#ff2b4d';
     if(b.transformTimer>=postDur){
       b.transformPhase='zoomout'; b.transformTimer=0;
@@ -372,7 +366,6 @@ function updateBossTank(b,dt){
     if(b.dashTimer<=0){
       b.dashTimer= b.formTier===2?4.0:4.5;
       if(b.formTier===2){
-        /* 第2形態: 予測ラインを発射時点で確定させ、そのラインに沿って正確に突進する */
         const d=dist(b.x,b.y,p.x,p.y)||1;
         const lockedDX=(p.x-b.x)/d, lockedDY=(p.y-b.y)/d;
         const dashDist=500*2;
@@ -384,7 +377,6 @@ function updateBossTank(b,dt){
           checkTransformTrigger(b);
         });
       } else {
-        /* 第1形態: 予測表示のみで、突進発動時は改めてプレイヤーの位置へ向けて突進する */
         startTelegraph(b,{shape:'line',x1:b.x,y1:b.y,x2:p.x,y2:p.y,width:b.r*2},0.6,()=>{
           const dd=dist(b.x,b.y,p.x,p.y)||1;
           b.mode='dash';
@@ -430,6 +422,7 @@ function updateBossTank(b,dt){
   updateTelegraph(b,dt);
   if(b.mode==='dash'){ b.dashTime-=dt; b.x+=b.dashVX*dt; b.y+=b.dashVY*dt; if(b.dashTime<=0) b.mode='chase'; }
   else if(!b.telegraph){ moveToward(b,p.x,p.y,dt,b.spd); }
+  clampToScreen(b,b.r);
   if(dist(b.x,b.y,p.x,p.y)<b.r+p.r) damagePlayer(40+Math.floor(Math.random()*11));
 }
 
@@ -449,7 +442,7 @@ function updateBossFortress(b,dt){
   const p=game.player;
   if(updateFortressEntrance(b,dt)) return;
   if(b.transforming){ updateTransform(b,dt); return; }
-  b.x=b.fixedX; b.y=b.fixedY; /* 座標完全固定・移動AIなし */
+  b.x=b.fixedX; b.y=b.fixedY;
 
   if(b.cycleState==='cooldown'){
     b.cycleTimer-=dt;
@@ -471,7 +464,6 @@ function updateBossFortress(b,dt){
   if(b.cycleState==='attackturn'){
     b.rotateAngle=0;
     b.cycleTimer-=dt;
-    /* 20秒経過時、攻撃モーション中なら終わるまで待機してから大CDへ */
     if(b.cycleTimer<=0 && b.attackSubState==='idle'){
       checkTransformTrigger(b);
       b.cycleState='cooldown';
@@ -483,7 +475,6 @@ function updateBossFortress(b,dt){
   }
 }
 
-/* 攻撃発動→小CD1秒→攻撃発動→小CD1秒→攻撃発動→中CD3秒 を1サイクルとして20秒間ループ */
 function fortressStartNextAttack(b){
   b.attackSubState='firing';
   fortressFireOne(b,()=>{
@@ -560,7 +551,6 @@ function updateFortressLaser(b,dt){
   }
 }
 
-/* drawFortressShape: hexagram描画部分を単一パス版へ置き換え、morph中はeaseOutBackで内側から拡大 */
 function drawFortressShape(b){
   ctx.save();
   const flash=b.hitFlash>0?'#fff':b.color;
