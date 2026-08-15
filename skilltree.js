@@ -50,15 +50,32 @@ const core={x:0,y:0,id:'core'};
 /* ---- 基礎ステータス（トークン専用ツリー、幹＝上方向） ---- */
 const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'));
 
-/* 攻撃力ノード: Lv1コスト20→LvMax(50)コスト5000、Lv1効果+1→LvMax(50)効果+100 */
-const DMG_MAXLV=50, DMG_BASE=20, DMG_TARGET_COST=5000;
-const DMG_A=(DMG_TARGET_COST-DMG_BASE)/Math.pow(DMG_MAXLV-1,1.8);
+/* ---- 攻撃力: Lv1コスト5、二次関数的なコスト・効果曲線、Lv50で基礎攻撃力ちょうど100 ---- */
+const DMG_MAXLV=50;
+const DMG_BASE_COST=5;
+const DMG_COST_TARGET_MAX=5000; /* Lv50時点の単発コスト目安 */
+const DMG_COST_A=(DMG_COST_TARGET_MAX-DMG_BASE_COST)/Math.pow(DMG_MAXLV,2);
+function dmgCostAtLevel(l){ return Math.round(DMG_BASE_COST + DMG_COST_A*Math.pow(l+1,2)); }
+function dmgEffectAtLevel(l){
+  const raw=l*l;
+  return raw;
+}
+const DMG_RAW_SUM=(()=>{ let s=0; for(let i=1;i<=DMG_MAXLV;i++) s+=dmgEffectAtLevel(i); return s; })();
+const DMG_SCALE=99/DMG_RAW_SUM;
+function dmgCumulativeBonus(l){
+  let s=0; for(let i=1;i<=l;i++) s+=dmgEffectAtLevel(i)*DMG_SCALE;
+  return s;
+}
 const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:DMG_MAXLV,
-  baseCost:DMG_BASE,growth:1,costFn:lvl=>DMG_BASE+DMG_A*Math.pow(lvl,1.8),
+  baseCost:DMG_BASE_COST,growth:1,
+  costFn:(lvl)=>dmgCostAtLevel(lvl),
   parent:'core',x:t_dmg_pos.x,y:t_dmg_pos.y,
-  apply:(b,l)=>{ const effect=1+(100-1)*(l-1)/(DMG_MAXLV-1); b.batDamage+=effect; b.damage+=effect; },
+  apply:(b,l)=>{
+    const bonus=dmgCumulativeBonus(l);
+    b.batDamage=1+bonus; b.damage=1+bonus;
+  },
   line2:'近接ダメージが上昇',
-  line3:l=>`攻撃力+${(1+(100-1)*(l-1)/(DMG_MAXLV-1)).toFixed(1)}`};
+  line3:l=>`攻撃力 ${(1+dmgCumulativeBonus(l)).toFixed(1)}（+${dmgCumulativeBonus(l).toFixed(1)}）`};
 
 const t_aspd_pos=organicPlace(t_dmg_pos,-150,140,185,tierRadius('gate'));
 const t_aspd={id:'t_aspd',costType:'token',scope:'global',name:'攻撃速度',icon:'⚡',maxLv:12,baseCost:10,growth:1.5,parent:'t_dmg',
@@ -84,30 +101,25 @@ const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
 const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
   x:t_range_pos.x,y:t_range_pos.y,apply:(b,l)=>{b.range*=(1+0.04*l);},line2:'近接攻撃の届く距離が伸びる',line3:l=>`射程+${Math.round(4*l)}%`};
 
-/* t_tokendrop 定義（パーセンテージ方式 0%〜300% 全面改修） */
-const PLAYER_R_FOR_PICKUP=20; /* makePlayerのr:20と一致させる基準値 */
+/* ---- トークン回収範囲: プレイヤー半径基準のリニア成長（Lv0=0, Lv10=半径×10） ---- */
+const PLAYER_R_FOR_PICKUP=20;
 const T_DROP_MAXLV=10;
-function pickupPctForLevel(l){
-  if(l<=0) return 0;
-  if(l<=9) return l*20;      /* Lv1=20% 〜 Lv9=180% */
-  return 300;                /* Lv10=300% */
+function pickupExtraForLevel(l){
+  return (PLAYER_R_FOR_PICKUP*10)*(l/T_DROP_MAXLV);
 }
-function pickupCostGrowth(){
-  /* Lv1コスト20 〜 Lv10コスト2000 の指数成長 */
-  return Math.pow(2000/20, 1/9);
+function pickupPctForLevel(l){
+  return Math.round(100 + (200*(l/T_DROP_MAXLV)));
 }
 const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
 const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークン回収範囲',icon:'⬡',
-  maxLv:T_DROP_MAXLV,baseCost:20,growth:pickupCostGrowth(),
+  maxLv:T_DROP_MAXLV,baseCost:20,growth:Math.pow(2000/20,1/(T_DROP_MAXLV-1)),
   parent:'t_aspd',x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,
   apply:(b,l)=>{
-    const pct=pickupPctForLevel(l);
-    b.pickupRangePct=pct;
-    /* pct=0: 半径0(接触のみ) / pct=300: 半径=プレイヤー直径の5倍=PLAYER_R*10 */
-    b.pickupRadius=(pct/300)*(PLAYER_R_FOR_PICKUP*10);
+    b.pickupRadius=pickupExtraForLevel(l);
+    b.pickupRangePct=pickupPctForLevel(l);
   },
   line2:'トークンを回収するときの範囲が増加',
-  line3:l=>`回収範囲 ${pickupPctForLevel(l)}%`};
+  line3:l=>`回収範囲 ${pickupPctForLevel(l)}%（半径+${Math.round(pickupExtraForLevel(l))}）`};
 
 const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'));
 const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',icon:'➤',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
@@ -162,7 +174,7 @@ function buildStandardGateBranch(tokenId,tokenPos,angle,cfg){
   return [gate,deriv1,deriv2,up1a,up1b,up2a,up2b,capstone,legend,ultimate];
 }
 
-/* ---- 各ビルド（ノード名変更反映） ---- */
+/* ---- 各ビルド ---- */
 const mageBranch=buildStandardGateBranch('t_range',t_range_pos,-170,{
   gate:{id:'mg_gate',name:'魔術入門',icon:'✦',maxLv:1,baseCost:600,growth:1,apply:(b,l)=>{},line2:'解放するとビルドツリーへ進入できる',line3:()=>'能力値上昇なし'},
   deriv1:{node:{id:'mg_lightning',name:'雷撃付与',icon:'⚡',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.mageUnlocked=true;b.chainCount+=1;},line2:'連鎖する雷を習得',line3:()=>'敵を伝う遠距離攻撃'},
@@ -266,7 +278,9 @@ const vitalityBranch=(function(){
   const regenP=organicPlace(gateP,24,150,190,tierRadius('deriv'));
   const regenDeriv={id:'vt_regenroot',costType:'star',scope:'slot',parent:'vt_gate',tier:'deriv',
     name:'自己修復習得',icon:'✚',maxLv:1,baseCost:2,growth:1,x:regenP.x,y:regenP.y,
-    apply:(b,l)=>{b.vitalityUnlocked=true;b.regenEnabled=true;b.regen+=6;},line2:'HPが最大値未満のとき自動回復する',line3:()=>'1秒毎にHPを回復'};
+    apply:(b,l)=>{b.vitalityUnlocked=true;b.regenEnabled=true;},
+    line2:'HPが最大値未満のとき自動回復する',
+    line3:()=>'自動回復を有効化（回復量は下記ノードで加算）'};
 
   const shieldCountP=organicPlace(armorP,-18,150,190,tierRadius('upgrade'));
   const shieldCountNode={id:'vt_shieldcount',costType:'token',scope:'slot',parent:'vt_armor',tier:'upgrade',
@@ -279,13 +293,19 @@ const vitalityBranch=(function(){
     apply:(b,l)=>{b.shieldAutoRegen=true;},line2:'時間経過でシールドが自動復元',line3:()=>'60秒毎にシールドを1つ回復'};
 
   const nanoP=organicPlace(regenP,18,150,190,tierRadius('upgrade'));
+  const NANO_MAXLV=8;
   const nanoNode={id:'vt_regennano',costType:'token',scope:'slot',parent:'vt_regenroot',tier:'upgrade',
-    name:'自己修復ナノ',icon:'✚',maxLv:8,baseCost:800,growth:1.9,x:nanoP.x,y:nanoP.y,
-    apply:(b,l)=>{b.regen+=4*l;},line2:'HP自動回復量が上昇',line3:l=>`HP自動回復+${4*l}/秒`};
+    name:'自己修復ナノ',icon:'✚',maxLv:NANO_MAXLV,baseCost:800,growth:1.9,x:nanoP.x,y:nanoP.y,
+    apply:(b,l)=>{
+      const perLevel=32/NANO_MAXLV;
+      b.regen=(b.regen||0)+perLevel*l;
+    },
+    line2:'HP自動回復量が上昇',
+    line3:l=>`自動回復力: ${Math.round((32/NANO_MAXLV)*l)}`};
 
   const capP=organicPlace(gateP,0,340,400,tierRadius('capstone'));
   const capstone={id:'vt_capstone',costType:'star',scope:'slot',parent:'vt_armor',tier:'capstone',
-    name:'不屈の意志',icon:'✝',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
+    name:'不屈の意志',icon:'🪨',maxLv:1,baseCost:4,growth:1,x:capP.x,y:capP.y,
     derivReq:{ids:['vt_armor','vt_regenroot'],needCount:2},
     apply:(b,l)=>{b.dmgReductionMult*=1.5;},line2:'被ダメージ軽減が大幅上昇',line3:()=>'軽減倍率x1.5'};
 
@@ -472,7 +492,7 @@ function respecActiveSlot(){
 function computePlayerStats(){
   /* 未解放時は接触のみとするため pickupRadius:0, pickupRangePct:0 で初期化 */
   const base={maxHp:100,damage:1,batDamage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,pickupRadius:0,pickupRangePct:0};
-  const build={pickupRadius:0,pickupRangePct:0,statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
+  const build={pickupRadius:0,pickupRangePct:100,regen:0,statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
     bowUnlocked:false,arrowCount:1,arrowDmg:0,bowDmgMult:1,bowSpeedReduce:0,arrowPierce:0,bowRangeBonus:0,
     boxerMode:false,boxerDmg:0,boxerCombo:1,boxerDmgMult:1,boxerCritBonus:0,boxerRange:42,boxerAtkSpdMul:1,
     mageUnlocked:false,chainCount:0,mageDmg:0,mageDmgMult:1,fireballRadius:0,fireballDmg:0,mageAtkSpd:0,
@@ -608,6 +628,12 @@ const SkillTree=(function(){
     set('snpCurrent', lvl>0?(typeof n.line3==='function'?n.line3(lvl):n.line3):'なし');
     const nextLvl=Math.min(n.maxLv,lvl+1);
     set('snpNext', st==='unlockable'?(typeof n.line3==='function'?n.line3(nextLvl):n.line3):(st==='maxed'?'最大解放済み':'解放条件未達成'));
+
+    if(n.id==='t_tokendrop'){
+      set('snpCurrent', lvl>0? `回収範囲 ${pickupPctForLevel(lvl)}%` : '回収範囲 100%（接触のみ）');
+      set('snpNext', st==='unlockable'? `回収範囲 ${pickupPctForLevel(nextLvl)}%` : (st==='maxed'?'最大解放済み':'解放条件未達成'));
+    }
+
     const cost=st==='maxed'?0:costAt(n,lvl);
     const costText = (n.tier==='gate'&&n.starCost) ? `${cost} ⬡ + ${n.starCost} ⭐` : `${cost} ${n.costType==='token'?'⬡ トークン':'⭐ スター'}`;
     set('snpCost', st==='maxed'?'MAX':costText);
@@ -737,7 +763,7 @@ function openCoreModal(){
   set('coreDamage', `${rawDamage.toFixed(1)} [${finalDamage}]`);
   set('coreAtkSpd', base.atkSpd.toFixed(2)+'/秒');
   set('coreRange', Math.round(base.range));
-  set('coreTokenDrop', (base.pickupRangePct||0)+'%');
+  set('coreTokenDrop', (base.pickupRangePct || build.pickupRangePct || 100)+'%');
   set('coreSpeed', Math.round(base.speed));
   set('coreKnockback', Math.round(base.knockback));
   set('coreCrit', Math.round(base.crit*100)+'%');
