@@ -1,4 +1,4 @@
-/* main.js（統合済み・完全版：BGM Wave帯判定修正、起動時bootstrap呼び出し、回収範囲・攻撃力・自己修復ナノ関連の呼び出しを含む最終版） */
+/* main.js（統合済み・完全版：スーパークリット赤フラッシュ、拳ネオンオレンジクリ、ドロップ座標クランプ適用版） */
 "use strict";
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
@@ -53,23 +53,29 @@ function pointToSegDist(px,py,x1,y1,x2,y2){
   return dist(px,py,x1+t*dx,y1+t*dy);
 }
 
-function damageTarget(e,amount,isCrit){
+function damageTarget(e,amount,isCrit,isBoxerCrit){
   e.hp-=amount; e.hitFlash=0.12; AudioEngine.SE.hitEnemy(); spawnParticles(e.x,e.y,e.color||'#fff',4);
-  spawnDamageNumber(e.x,e.y,amount,!!isCrit);
+  spawnDamageNumber(e.x,e.y,amount,!!isCrit,!!isBoxerCrit);
   if(e.hp<=0 && !e.dead){
     e.dead=true;
     const isBossPart = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
     if(!isBossPart){
       game.kills++; AudioEngine.SE.enemyDie(); spawnParticles(e.x,e.y,e.color,16);
       spawnChestMaybe(e.x,e.y,e.wave||game.wave);
+      /* 画面外での撃破: ドロップ座標を画面内20px内側にクランプ */
+      const dropX=Math.max(20,Math.min(W-20,e.x));
+      const dropY=Math.max(20,Math.min(H-20,e.y));
       game.tokenPickups=game.tokenPickups||[];
-      game.tokenPickups.push({x:e.x,y:e.y,r:5,phase:Math.random()*Math.PI*2,value:e.tokenValue||1,vx:0,vy:0,isBoss:false});
+      game.tokenPickups.push({x:dropX,y:dropY,r:5,phase:Math.random()*Math.PI*2,value:e.tokenValue||1,vx:0,vy:0,isBoss:false});
     }
   }
 }
-function spawnDamageNumber(x,y,amount,isCrit){
-  game.floatingTexts.push({x,y:y-10,text:Math.round(amount).toString(),isCrit,life:0.9,maxLife:0.9,vy:-46});
-  if(isCrit){ game.floatingTexts.push({x,y:y-34,text:'CRITICAL!',isCrit:true,critLabel:true,life:0.9,maxLife:0.9,vy:-46}); AudioEngine.SE.critical(); }
+function spawnDamageNumber(x,y,amount,isCrit,isBoxerCrit){
+  game.floatingTexts.push({x,y:y-10,text:Math.round(amount).toString(),isCrit,isBoxerCrit,life:0.9,maxLife:0.9,vy:-46});
+  if(isCrit){
+    game.floatingTexts.push({x,y:y-34,text:'CRITICAL!',isCrit:true,critLabel:true,isBoxerCrit,life:0.9,maxLife:0.9,vy:-46});
+    AudioEngine.SE.critical();
+  }
 }
 function spawnChestMaybe(x,y,wave){ if(Math.random()<0.005){ game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,dropWave:wave||game.wave}); } }
 function spawnParticles(x,y,color,count){
@@ -117,7 +123,7 @@ function battleBgmKeyForWave(wave){ return wave>=21? 'stage2':'stage1'; }
 function startRun(){
   W=canvas.width; H=canvas.height;
   game={player:makePlayer(),enemies:[],bullets:[],particles:[],chests:[],tokenPickups:[],swings:[],lightnings:[],fireballs:[],drones:[],
-    floatingTexts:[],chestPopup:null,healItems:[],regenPops:[],
+    floatingTexts:[],chestPopup:null,healItems:[],regenPops:[],superCritFlash:0,
     wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,spawnQueue:waveEnemyCount(1),kills:0,elapsed:0,shake:0,running:true,paused:false,
     tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0,legendCooldowns:{crosscut:0,shotgun:0,lifedrain:0},
     cameraZoom:{active:false,scale:1,target:null}, playerFrozen:false, waveSkipCd:0, lastBgmWaveKey:null};
@@ -558,8 +564,11 @@ function render(){
   for(const t of game.floatingTexts){
     const a=Math.max(0,t.life/t.maxLife);
     ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center'; ctx.textBaseline='middle';
-    if(t.isToken){ ctx.font='bold 16px Consolas'; ctx.fillStyle='#00d9ff'; ctx.shadowColor='#00d9ff'; ctx.shadowBlur=10; }
+    if(t.isSuperCrit){ ctx.font='bold 64px Consolas'; ctx.fillStyle='#ff2b2b'; ctx.shadowColor='#ff2b2b'; ctx.shadowBlur=30; }
+    else if(t.isToken){ ctx.font='bold 16px Consolas'; ctx.fillStyle='#00d9ff'; ctx.shadowColor='#00d9ff'; ctx.shadowBlur=10; }
+    else if(t.critLabel && t.isBoxerCrit){ ctx.font='bold 26px Consolas'; ctx.fillStyle='#ff8c1a'; ctx.shadowColor='#ff8c1a'; ctx.shadowBlur=18; }
     else if(t.critLabel){ ctx.font='bold 26px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=18; }
+    else if(t.isCrit && t.isBoxerCrit){ ctx.font='bold 30px Consolas'; ctx.fillStyle='#ff8c1a'; ctx.shadowColor='#ff8c1a'; ctx.shadowBlur=16; }
     else if(t.isCrit){ ctx.font='bold 30px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=16; }
     else { ctx.font='bold 16px Consolas'; ctx.fillStyle='#c4f5ff'; ctx.shadowColor='#00fff2'; ctx.shadowBlur=10; }
     ctx.fillText(t.text, t.x, t.y);
@@ -568,6 +577,13 @@ function render(){
   ctx.restore();
 
   drawBloodBorder();
+
+  /* 全体を1フレーム赤くフラッシュ（スーパークリット演出） */
+  if(game.superCritFlash>0){
+    ctx.save(); ctx.globalAlpha=Math.min(0.5,game.superCritFlash*8); ctx.fillStyle='#ff0000';
+    ctx.fillRect(0,0,W,H); ctx.restore();
+    game.superCritFlash=Math.max(0,game.superCritFlash-1/60);
+  }
 
   ctx.save();
   for(const h of game.healItems){
