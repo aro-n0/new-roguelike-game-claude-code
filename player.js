@@ -1,4 +1,4 @@
-/* player.js（全文：アストラ・アロー / ライフドレイン演出統合版） */
+/* player.js（全文：ボクサーモード拡張・スーパークリティカル演出統合版） */
 
 /*
   【skilltree.js 側の修正メモ】
@@ -16,6 +16,7 @@ function makePlayer(){
   const {base,build}=computePlayerStats();
   return {x:0,y:0,r:20,hp:base.maxHp,maxHp:base.maxHp,base,build,
     atkTimer:0,boltTimer:0,mageTimer:0,fireballTimer:0,pistolTimer:0,sniperTimer:0,droneAngle:0,
+    punchTimer:0,punchFxTimer:0,punchFxAngle:0,
     invuln:0,swingAngle:0,swingAnim:1,
     shield:0,shieldUnlockedThisRun:false,shieldRegenTimer:60,regenTickTimer:1,
     shieldAngle:0,shieldOrbits:[]};
@@ -82,28 +83,69 @@ function updatePlayer(dt){
 
   const targets=allTargets();
 
-  /* --- 近接攻撃(バット/拳): 弓装備時でもボクサーモードなら独立して実行 --- */
-  if(!p.build.bowUnlocked || p.build.boxerMode){
+  /* --- 近接攻撃: ボクサーモード / 通常バット --- */
+  if(p.build.boxerMode){
+    p.punchTimer=(p.punchTimer===undefined?0:p.punchTimer)-dt;
+    const baseInterval=Math.max(0.2, 1/p.base.atkSpd - (p.build.boxerAtkSpdSub||0));
+    if(p.punchTimer<=0){
+      const punchCount=p.build.boxerPunchCount||1;
+      const punchRange=(p.build.boxerRange||p.base.range*0.8);
+      p.punchTimer=baseInterval;
+      for(let i=0;i<punchCount;i++){
+        const delay=i*0.05;
+        setTimeout(()=>{
+          if(!game || !game.player || !game.player.build.boxerMode) return;
+          const pl=game.player;
+          const inRange=allTargets().filter(e=>dist(e.x,e.y,pl.x,pl.y)<=punchRange+e.r);
+          if(inRange.length===0) return;
+          const nearest=inRange.reduce((a,b)=>dist(a.x,a.y,pl.x,pl.y)<dist(b.x,b.y,pl.x,pl.y)?a:b);
+          const ang=Math.atan2(nearest.y-pl.y,nearest.x-pl.x);
+          pl.swingAngle=ang; pl.punchFxAngle=ang; pl.punchFxTimer=0.18;
+          AudioEngine.SE.attack();
+          const rawDmg=(pl.base.batDamage||pl.base.damage)+(pl.build.boxerBaseDmg||0);
+          const dmg=rawDmg*(pl.build.boxerDmgMult||1);
+          const critChance=pl.base.crit+(pl.build.boxerCritChanceBonus||0);
+          const critMult=pl.base.critMult+(pl.build.boxerCritMultBonus||0);
+          let isSuper=false, isCrit=false, finalDmg=dmg;
+          if(pl.build.boxerSuperCritUnlocked && Math.random()<(pl.build.boxerSuperCritChance||0)){
+            isSuper=true; finalDmg=dmg*(pl.build.boxerSuperCritMult||1);
+          } else if(Math.random()<critChance){
+            isCrit=true; finalDmg=dmg*critMult;
+          }
+          damageTarget(nearest, finalDmg, isCrit);
+          tryApplyStatus(nearest);
+          if(pl.lifedrainActive){
+            const heal=finalDmg*0.1;
+            pl.hp+=heal;
+            if(pl.hp>pl.maxHp){ const overflow=pl.hp-pl.maxHp; pl.maxHp+=overflow; }
+          }
+          if(isSuper){ triggerSuperCritVisual(nearest.x,nearest.y,finalDmg); }
+          if(pl.base.knockback>0){
+            const kAng=Math.atan2(nearest.y-pl.y,nearest.x-pl.x);
+            nearest.x+=Math.cos(kAng)*pl.base.knockback*0.12; nearest.y+=Math.sin(kAng)*pl.base.knockback*0.12;
+          }
+          spawnParticles(nearest.x,nearest.y,'#ff2b4d',6);
+          game.swings=game.swings||[];
+          game.swings.push({x:pl.x,y:pl.y,angle:ang,life:0.14,maxLife:0.14,range:punchRange,boxer:true});
+        },delay*1000);
+      }
+    }
+  } else if(!p.build.bowUnlocked){
+    /* --- 通常バット攻撃 --- */
     p.atkTimer=(p.atkTimer===undefined?0:p.atkTimer)-dt;
     if(p.atkTimer<=0){
-      const atkRange = p.build.boxerMode ? (p.build.boxerRange||42) : p.base.range;
+      const atkRange = p.base.range;
       const inRange=targets.filter(e=>dist(e.x,e.y,p.x,p.y)<=atkRange+e.r);
       if(inRange.length>0){
-        const atkSpd = p.build.boxerMode ? p.base.atkSpd*(p.build.boxerAtkSpdMul||1) : p.base.atkSpd;
-        p.atkTimer=1/atkSpd;
+        p.atkTimer=1/p.base.atkSpd;
         const nearest=inRange.reduce((a,b)=>dist(a.x,a.y,p.x,p.y)<dist(b.x,b.y,p.x,p.y)?a:b);
         p.meleeAngle=Math.atan2(nearest.y-p.y,nearest.x-p.x);
-        if(!p.build.bowUnlocked) p.swingAngle=p.meleeAngle;
+        p.swingAngle=p.meleeAngle;
         p.swingAnim=0; game.hitStop=0.035;
         AudioEngine.SE.attack();
-        let dmg;
-        if(p.build.boxerMode){
-          dmg=((p.base.batDamage||p.base.damage)+p.build.boxerDmg)*p.build.boxerDmgMult*p.build.boxerCombo;
-        } else {
-          dmg=(p.base.batDamage||p.base.damage);
-        }
+        const dmg=(p.base.batDamage||p.base.damage);
         inRange.forEach(e=>{
-          const crit=Math.random()<(p.base.crit+(p.build.boxerCritBonus||0));
+          const crit=Math.random()<p.base.crit;
           const dmgDealt=dmg*(crit?p.base.critMult:1);
           damageTarget(e,dmgDealt,crit);
           tryApplyStatus(e);
@@ -119,7 +161,7 @@ function updatePlayer(dt){
           }
           spawnParticles(e.x,e.y,'#e8fbff',5);
         });
-        game.swings.push({x:p.x,y:p.y,angle:p.meleeAngle,life:0.18,maxLife:0.18,range:atkRange,boxer:p.build.boxerMode});
+        game.swings.push({x:p.x,y:p.y,angle:p.meleeAngle,life:0.18,maxLife:0.18,range:atkRange,boxer:false});
       }
     }
     if(p.swingAnim<1) p.swingAnim=Math.min(1,p.swingAnim+dt/0.22);
@@ -275,6 +317,15 @@ function damagePlayer(amount){
   }
 }
 
+/* --- スーパークリティカル演出 --- */
+function triggerSuperCritVisual(x,y,dmg){
+  game.superCritFlash=0.06;
+  screenShake(20);
+  game.floatingTexts=game.floatingTexts||[];
+  game.floatingTexts.push({x,y:y-40,text:Math.round(dmg).toString(),isSuperCrit:true,life:1.3,maxLife:1.3,vy:-20});
+  if(AudioEngine.SE.superCrit) AudioEngine.SE.superCrit();
+}
+
 /* --- アストラ・アロー 詠唱魔法陣描画 --- */
 function drawAstraCast(){
   if(!game.astraCast) return;
@@ -367,7 +418,7 @@ function drawGunbit(p,offAngle){
 }
 
 function drawNeonKnuckles(p){
-  const ang=p.meleeAngle!==undefined?p.meleeAngle:p.swingAngle;
+  const ang=p.punchFxTimer>0 ? p.punchFxAngle : (p.meleeAngle!==undefined?p.meleeAngle:p.swingAngle);
   const kx=p.x+Math.cos(ang)*24, ky=p.y+Math.sin(ang)*24;
   ctx.save(); ctx.translate(kx,ky); ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=10;
   ctx.fillStyle='#ff2b4d'; ctx.beginPath(); ctx.arc(0,0,7,0,Math.PI*2); ctx.fill(); ctx.restore();
@@ -417,8 +468,7 @@ function drawPlayer(){
     drawHoloBow(p);
     if(p.build.boxerMode) drawNeonKnuckles(p);
   } else if(p.build.boxerMode){
-    ctx.save(); ctx.fillStyle='#ff2b4d'; ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=10;
-    ctx.beginPath(); ctx.arc(p.x+Math.cos(p.swingAngle)*(p.r+8), p.y+Math.sin(p.swingAngle)*(p.r+8),7,0,Math.PI*2); ctx.fill(); ctx.restore();
+    drawNeonKnuckles(p);
   } else {
     const off=(1-easeOutBack(p.swingAnim))*-1.3;
     if(p.swingAnim<0.85){
