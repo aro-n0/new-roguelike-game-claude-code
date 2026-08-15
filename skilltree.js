@@ -50,32 +50,16 @@ const core={x:0,y:0,id:'core'};
 /* ---- 基礎ステータス（トークン専用ツリー、幹＝上方向） ---- */
 const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'));
 
-/* ---- 攻撃力: Lv1コスト5、二次関数的なコスト・効果曲線、Lv50で基礎攻撃力ちょうど100 ---- */
+/* ---- 攻撃力: Lv0〜50 二次関数曲線 ---- */
+function dmgEffectAtLv(lv){ return 1 + Math.round(199*Math.pow(lv/50,2.1)); }
+function dmgCostAtLv(lv){ return 5 + Math.round(6995*Math.pow(lv/50,2.3)); }
 const DMG_MAXLV=50;
-const DMG_BASE_COST=5;
-const DMG_COST_TARGET_MAX=5000; /* Lv50時点の単発コスト目安 */
-const DMG_COST_A=(DMG_COST_TARGET_MAX-DMG_BASE_COST)/Math.pow(DMG_MAXLV,2);
-function dmgCostAtLevel(l){ return Math.round(DMG_BASE_COST + DMG_COST_A*Math.pow(l+1,2)); }
-function dmgEffectAtLevel(l){
-  const raw=l*l;
-  return raw;
-}
-const DMG_RAW_SUM=(()=>{ let s=0; for(let i=1;i<=DMG_MAXLV;i++) s+=dmgEffectAtLevel(i); return s; })();
-const DMG_SCALE=99/DMG_RAW_SUM;
-function dmgCumulativeBonus(l){
-  let s=0; for(let i=1;i<=l;i++) s+=dmgEffectAtLevel(i)*DMG_SCALE;
-  return s;
-}
 const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:DMG_MAXLV,
-  baseCost:DMG_BASE_COST,growth:1,
-  costFn:(lvl)=>dmgCostAtLevel(lvl),
+  baseCost:5,growth:1,costFn:(lvl)=>dmgCostAtLv(lvl+1),
   parent:'core',x:t_dmg_pos.x,y:t_dmg_pos.y,
-  apply:(b,l)=>{
-    const bonus=dmgCumulativeBonus(l);
-    b.batDamage=1+bonus; b.damage=1+bonus;
-  },
+  apply:(b,l)=>{ const val=dmgEffectAtLv(l); b.batDamage=val; b.damage=val; },
   line2:'近接ダメージが上昇',
-  line3:l=>`攻撃力 ${(1+dmgCumulativeBonus(l)).toFixed(1)}（+${dmgCumulativeBonus(l).toFixed(1)}）`};
+  line3:l=>`攻撃力 ${dmgEffectAtLv(l)}`};
 
 const t_aspd_pos=organicPlace(t_dmg_pos,-150,140,185,tierRadius('gate'));
 const t_aspd={id:'t_aspd',costType:'token',scope:'global',name:'攻撃速度',icon:'⚡',maxLv:12,baseCost:10,growth:1.5,parent:'t_dmg',
@@ -101,25 +85,18 @@ const t_range_pos=organicPlace(t_aspd_pos,-170,140,185,tierRadius('gate'));
 const t_range={id:'t_range',costType:'token',scope:'global',name:'攻撃範囲',icon:'◎',maxLv:10,baseCost:12,growth:1.5,parent:'t_aspd',
   x:t_range_pos.x,y:t_range_pos.y,apply:(b,l)=>{b.range*=(1+0.04*l);},line2:'近接攻撃の届く距離が伸びる',line3:l=>`射程+${Math.round(4*l)}%`};
 
-/* ---- トークン回収範囲: プレイヤー半径基準のリニア成長（Lv0=0, Lv10=半径×10） ---- */
+/* ---- トークン回収範囲: プレイヤー半径基準の統一式（0〜10で線形） ---- */
 const PLAYER_R_FOR_PICKUP=20;
 const T_DROP_MAXLV=10;
-function pickupExtraForLevel(l){
-  return (PLAYER_R_FOR_PICKUP*10)*(l/T_DROP_MAXLV);
-}
-function pickupPctForLevel(l){
-  return Math.round(100 + (200*(l/T_DROP_MAXLV)));
-}
+function pickupExtraForLevel(l){ return (PLAYER_R_FOR_PICKUP*10)*(l/T_DROP_MAXLV); }
+function pickupPctForLevel(l){ return Math.round(100 + 200*(l/T_DROP_MAXLV)); }
 const t_tokendrop_pos=organicPlace(t_aspd_pos,-130,140,185,tierRadius('gate'));
 const t_tokendrop={id:'t_tokendrop',costType:'token',scope:'global',name:'トークン回収範囲',icon:'⬡',
   maxLv:T_DROP_MAXLV,baseCost:20,growth:Math.pow(2000/20,1/(T_DROP_MAXLV-1)),
   parent:'t_aspd',x:t_tokendrop_pos.x,y:t_tokendrop_pos.y,
-  apply:(b,l)=>{
-    b.pickupRadius=pickupExtraForLevel(l);
-    b.pickupRangePct=pickupPctForLevel(l);
-  },
+  apply:(b,l)=>{ b.pickupRadius=pickupExtraForLevel(l); b.pickupRangePct=pickupPctForLevel(l); },
   line2:'トークンを回収するときの範囲が増加',
-  line3:l=>`回収範囲 ${pickupPctForLevel(l)}%（半径+${Math.round(pickupExtraForLevel(l))}）`};
+  line3:l=>`回収範囲 ${pickupPctForLevel(l)}%`};
 
 const t_speed_pos=organicPlace(t_hp_pos,-110,140,185,tierRadius('gate'));
 const t_speed={id:'t_speed',costType:'token',scope:'global',name:'移動速度',icon:'➤',maxLv:10,baseCost:10,growth:1.5,parent:'t_hp',
@@ -226,22 +203,108 @@ const chemicalBranch=buildStandardGateBranch('t_crit',t_crit_pos,-45,{
   ultimate:{id:'ch_ultimate',name:'汚染フィールド',icon:'☣',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.statusChance+=0.3;b.statusDmgMult*=1.3;},line2:'状態異常の付与率と威力が最大化',line3:()=>'付与率+30% 倍率x1.3'},
 });
 
-const boxerBranch=buildStandardGateBranch('t_crit',t_crit_pos,-15,{
-  gate:{id:'bx_gate',name:'闘志の誓い',icon:'✊',maxLv:1,baseCost:650,growth:1,apply:(b,l,base)=>{b.boxerMode=true;b.boxerRange=base.range*0.6;b.boxerAtkSpdMul=0.85;b.boxerDmg+=8;},line2:'拳を装備する（バットと併用可）',line3:()=>'近接高火力の格闘スタイル'},
-  deriv1:{node:{id:'bx_fist',name:'拳強化習得',icon:'✊',maxLv:1,baseCost:2,growth:1,apply:(b,l)=>{b.boxerDmg+=6;},line2:'拳の基礎威力が上昇',line3:()=>'拳威力+6'},
-    upgrades:[
-      {id:'bx_up_power',name:'鋼拳強化',icon:'✊',maxLv:6,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l)=>{b.boxerDmg+=6*l;},line2:'拳の威力が上昇',line3:l=>`威力+${6*l}`},
-      {id:'bx_up_combo',name:'連撃技術',icon:'✊',maxLv:6,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.boxerCombo+=0.15*l;},line2:'連続ヒットで威力が伸びる',line3:l=>`連撃倍率+${Math.round(15*l)}%`},
-    ]},
-  deriv2:{node:{id:'bx_footwork',name:'闘気循環',icon:'✊',maxLv:1,baseCost:2,growth:1,apply:(b,l,base)=>{base.speed*=1.1;},line2:'俊敏性が向上する',line3:()=>'移動速度が上昇'},
-    upgrades:[
-      {id:'bx_up_speed',name:'フットワーク',icon:'✊',maxLv:5,baseCost:6,growth:1.3,costType:'token',scope:'slot',apply:(b,l,base)=>{base.speed*=(1+0.03*l);},line2:'移動速度がさらに上昇',line3:l=>`移動速度+${Math.round(3*l)}%`},
-      {id:'bx_up_crit',name:'急所突き',icon:'✹',maxLv:5,baseCost:1,growth:1,costType:'star',scope:'slot',apply:(b,l)=>{b.boxerCritBonus=(b.boxerCritBonus||0)+0.02*l;},line2:'クリティカル率が上昇',line3:l=>`クリティカル率+${Math.round(2*l)}%`},
-    ]},
-  capstone:{id:'bx_capstone',name:'限界突破',icon:'☄',maxLv:1,baseCost:4,growth:1,apply:(b,l)=>{b.boxerDmgMult*=1.65;},line2:'拳の威力が限界を超えて上昇',line3:()=>'拳倍率x1.65'},
-  legend:{id:'bx_legend',name:'スーパークリティカル',icon:'✝',maxLv:1,baseCost:5,growth:1,apply:(b,l)=>{b.legendBoxer=true;},line2:'極低確率で発生する超絶一撃',line3:()=>'敵の最大HPの約4割を吹き飛ばす'},
-  ultimate:{id:'bx_ultimate',name:'鬼神の拳',icon:'☄',maxLv:1,baseCost:TOKENS_50WAVES_2ROUNDS,growth:1,apply:(b,l)=>{b.boxerCombo+=0.3;b.boxerDmgMult*=1.35;},line2:'連撃と威力が最大まで強化される',line3:()=>'連撃+30% 倍率x1.35'},
-});
+/* ---- ボクサービルド: 新規ツリー全定義 ---- */
+const boxerBranch=(function(){
+  const gateP=organicPlace(t_crit_pos,-15,180,230,tierRadius('gate'),18,2);
+  const gate={id:'bx_gate',costType:'token',scope:'slot',parent:'t_crit',tier:'gate',isGate:true,
+    name:'闘志の誓い',icon:'✊',maxLv:1,baseCost:650,growth:1,x:gateP.x,y:gateP.y,
+    apply:(b,l)=>{ b.boxerMode=true; b.boxerPunchDir=true; },
+    line2:'拳を装備する（バット装備不可）',line3:()=>'近接攻撃が拳に変化'};
+
+  const habitP=organicPlace(gateP,-26,150,190,tierRadius('deriv'),20,3);
+  const habit={id:'bx_habit',costType:'star',scope:'slot',parent:'bx_gate',tier:'deriv',
+    name:'拳強化習慣',icon:'✊',maxLv:1,baseCost:2,growth:1,x:habitP.x,y:habitP.y,
+    apply:(b,l)=>{ b.boxerBaseDmg=(b.boxerBaseDmg||0)+30; b.boxerCritMultBonus=(b.boxerCritMultBonus||0)+0.5; },
+    line2:'基礎攻撃力とクリティカル倍率が上昇',line3:()=>'基礎攻撃力+30 クリティカル倍率+0.5'};
+
+  const comboP=organicPlace(gateP,26,150,190,tierRadius('deriv'),20,3);
+  const combo={id:'bx_combo2',costType:'star',scope:'slot',parent:'bx_gate',tier:'deriv',
+    name:'連撃',icon:'✊',maxLv:1,baseCost:2,growth:1,x:comboP.x,y:comboP.y,
+    apply:(b,l)=>{ b.boxerPunchCount=(b.boxerPunchCount||1)+1; },
+    line2:'1回あたりのパンチ数が増加',line3:()=>'パンチ数+1'};
+
+  /* 拳強化習慣 → 急所突き / 闘気習得 */
+  const critAimP=organicPlace(habitP,-14,130,160,tierRadius('upgrade'),22,4);
+  const CRIT_AIM_MAXLV=3;
+  const critAim={id:'bx_critaim',costType:'token',scope:'slot',parent:'bx_habit',tier:'upgrade',
+    name:'急所突き',icon:'✊',maxLv:CRIT_AIM_MAXLV,baseCost:5000,growth:Math.pow(15000/5000,1/(CRIT_AIM_MAXLV-1)),
+    x:critAimP.x,y:critAimP.y,apply:(b,l)=>{ b.boxerCritChanceBonus=(b.boxerCritChanceBonus||0)+0.04*l; },
+    line2:'拳専用のクリティカル率が上昇',line3:l=>`拳クリティカル率+${Math.round(4*l)}%`};
+
+  const chiP=organicPlace(habitP,14,130,160,tierRadius('upgrade'),22,4);
+  const CHI_MAXLV=3;
+  const chi={id:'bx_chi',costType:'token',scope:'slot',parent:'bx_habit',tier:'upgrade',
+    name:'闘気習得',icon:'✊',maxLv:CHI_MAXLV,baseCost:1000,growth:Math.pow(3000/1000,1/(CHI_MAXLV-1)),
+    x:chiP.x,y:chiP.y,apply:(b,l)=>{ b.boxerBaseDmg=(b.boxerBaseDmg||0)+10*l; },
+    line2:'基礎攻撃力が上昇',line3:l=>`基礎攻撃力+${10*l}`};
+
+  /* 急所突き → 武の極 */
+  const wupolP=organicPlace(critAimP,-8,120,150,tierRadius('upgrade'),22,5);
+  const wupol={id:'bx_wupol',costType:'star',scope:'slot',parent:'bx_critaim',tier:'upgrade',
+    name:'武の極',icon:'✊',maxLv:1,baseCost:1,growth:1,x:wupolP.x,y:wupolP.y,
+    req:{id:'bx_critaim',lvl:CRIT_AIM_MAXLV},
+    apply:(b,l)=>{ b.boxerCritMultBonus=(b.boxerCritMultBonus||0)+2.0; },
+    line2:'拳クリティカル倍率が大幅上昇',line3:()=>'クリティカル倍率+200%'};
+
+  /* 闘気習得 → 闘気強化 → 覇者 */
+  const chiEnhP=organicPlace(chiP,8,120,150,tierRadius('upgrade'),22,5);
+  const CHI_ENH_MAXLV=5;
+  const chiEnh={id:'bx_chienh',costType:'token',scope:'slot',parent:'bx_chi',tier:'upgrade',
+    name:'闘気強化',icon:'✊',maxLv:CHI_ENH_MAXLV,baseCost:4000,growth:Math.pow(20000/4000,1/(CHI_ENH_MAXLV-1)),
+    x:chiEnhP.x,y:chiEnhP.y,req:{id:'bx_chi',lvl:CHI_MAXLV},
+    apply:(b,l)=>{ b.boxerDmgMult=(b.boxerDmgMult||1)+0.40*l; },
+    line2:'拳の攻撃倍率が上昇',line3:l=>`攻撃倍率+${(0.40*l).toFixed(2)}`};
+
+  const hasyaP=organicPlace(chiEnhP,8,130,160,tierRadius('upgrade'),22,6);
+  const hasya={id:'bx_hasya',costType:'star',scope:'slot',parent:'bx_chienh',tier:'upgrade',
+    name:'覇者',icon:'✊',maxLv:1,baseCost:1,growth:1,x:hasyaP.x,y:hasyaP.y,
+    req:{id:'bx_chienh',lvl:CHI_ENH_MAXLV},
+    apply:(b,l)=>{ b.boxerBaseDmg=(b.boxerBaseDmg||0)+70; },
+    line2:'基礎攻撃力がさらに大幅上昇',line3:()=>'基礎攻撃力+70'};
+
+  /* 連撃 → 残像拳 / 限界突破 */
+  const zanzoP=organicPlace(comboP,-14,140,170,tierRadius('upgrade'),22,4);
+  const zanzo={id:'bx_zanzo',costType:'token',scope:'slot',parent:'bx_combo2',tier:'upgrade',
+    name:'残像拳',icon:'✊',maxLv:1,baseCost:7000,growth:1,x:zanzoP.x,y:zanzoP.y,
+    apply:(b,l)=>{ b.boxerPunchCount=(b.boxerPunchCount||1)+1; },
+    line2:'パンチ数がさらに増加',line3:()=>'パンチ数+1'};
+
+  const genkaiP=organicPlace(comboP,14,150,190,tierRadius('upgrade'),22,4);
+  const genkai={id:'bx_genkai',costType:'star',scope:'slot',parent:'bx_combo2',tier:'upgrade',
+    name:'限界突破',icon:'✊',maxLv:1,baseCost:3,growth:1,x:genkaiP.x,y:genkaiP.y,
+    apply:(b,l)=>{ b.boxerDmgMult=(b.boxerDmgMult||1)+0.5; b.boxerAtkSpdSub=(b.boxerAtkSpdSub||0)+0.10; b.boxerCritMultBonus=(b.boxerCritMultBonus||0)+0.30; },
+    line2:'攻撃倍率・速度・クリティカル倍率が同時上昇',line3:()=>'倍率+50% 速度-0.10秒 クリ倍率+30%'};
+
+  /* 残像拳 → 超速 → 神速 */
+  const chosokuP=organicPlace(zanzoP,-8,130,160,tierRadius('upgrade'),22,5);
+  const chosoku={id:'bx_chosoku',costType:'star',scope:'slot',parent:'bx_zanzo',tier:'upgrade',
+    name:'超速',icon:'✊',maxLv:1,baseCost:1,growth:1,x:chosokuP.x,y:chosokuP.y,
+    apply:(b,l)=>{ b.boxerAtkSpdSub=(b.boxerAtkSpdSub||0)+0.10; },
+    line2:'拳の攻撃間隔が短縮',line3:()=>'攻撃間隔-0.10秒'};
+
+  const shinsokuP=organicPlace(chosokuP,-8,130,160,tierRadius('upgrade'),22,6);
+  const SHINSOKU_MAXLV=4;
+  const shinsoku={id:'bx_shinsoku',costType:'token',scope:'slot',parent:'bx_chosoku',tier:'upgrade',
+    name:'神速',icon:'✊',maxLv:SHINSOKU_MAXLV,baseCost:10000,growth:Math.pow(40000/10000,1/(SHINSOKU_MAXLV-1)),
+    x:shinsokuP.x,y:shinsokuP.y,req:{id:'bx_chosoku',lvl:1},
+    apply:(b,l)=>{ b.boxerAtkSpdSub=(b.boxerAtkSpdSub||0)+0.05*l; },
+    line2:'拳の攻撃間隔がさらに短縮',line3:l=>`攻撃間隔-${(0.05*l).toFixed(2)}秒`};
+
+  /* 限界突破 → 鬼神の拳 / 一撃 */
+  const onigamiP=organicPlace(genkaiP,-8,150,190,tierRadius('upgrade'),22,5);
+  const onigami={id:'bx_onigami',costType:'star',scope:'slot',parent:'bx_genkai',tier:'upgrade',
+    name:'鬼神の拳',icon:'✊',maxLv:1,baseCost:5,growth:1,x:onigamiP.x,y:onigamiP.y,
+    apply:(b,l)=>{ b.boxerPunchCount=(b.boxerPunchCount||1)+2; },
+    line2:'パンチ数がさらに大幅増加',line3:()=>'パンチ数+2'};
+
+  const ichigekiP=organicPlace(genkaiP,14,150,190,tierRadius('upgrade'),22,5);
+  const ichigeki={id:'bx_ichigeki',costType:'token',scope:'slot',parent:'bx_genkai',tier:'upgrade',
+    name:'一撃',icon:'✝',maxLv:1,baseCost:130000,growth:1,x:ichigekiP.x,y:ichigekiP.y,
+    apply:(b,l)=>{ b.boxerSuperCritUnlocked=true; b.boxerSuperCritChance=0.01; b.boxerSuperCritMult=10.0; },
+    line2:'拳スーパークリティカルを解放',line3:()=>'確率1% 倍率1000%（通常クリティカルとは独立）'};
+
+  return [gate,habit,combo,critAim,chi,wupol,chiEnh,hasya,zanzo,genkai,chosoku,shinsoku,onigami,ichigeki];
+})();
 
 const gunnerBranch=buildStandardGateBranch('t_knockback',t_knockback_pos,-90,{
   gate:{id:'gn_gate',name:'ガンマンの嗜み',icon:'●',maxLv:1,baseCost:650,growth:1,apply:(b,l)=>{b.gunnerUnlocked=true;},line2:'サイバーガンビットを浮遊配置（他武器と併用可）',line3:()=>'狙った方向へ自動発砲'},
@@ -486,18 +549,17 @@ function respecActiveSlot(){
   if(window.onCurrencyChange) window.onCurrencyChange();
 }
 
-/* =========================================================
-   プレイヤーステータス計算（独立ダメージ計算：基礎円バフは一括、派生バフは該当武器のみ）
-   ========================================================= */
+/* ---- computePlayerStats: ボクサー系ビルド初期値・独立クリティカルシステムを反映 ---- */
 function computePlayerStats(){
-  /* 未解放時は接触のみとするため pickupRadius:0, pickupRangePct:0 で初期化 */
-  const base={maxHp:100,damage:1,batDamage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,pickupRadius:0,pickupRangePct:0};
-  const build={pickupRadius:0,pickupRangePct:100,regen:0,statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
+  const base={maxHp:100,damage:1,batDamage:1,range:70,atkSpd:1.0,speed:180,regen:0,magnet:40,crit:0,critMult:2.0,knockback:1,tokenMul:1,pickupRadius:0,pickupRangePct:100};
+  const build={statusChance:0,statusDmgMult:1,poisonDmg:0,poisonDuration:3,frostSlow:0,burnDmg:0,
     bowUnlocked:false,arrowCount:1,arrowDmg:0,bowDmgMult:1,bowSpeedReduce:0,arrowPierce:0,bowRangeBonus:0,
-    boxerMode:false,boxerDmg:0,boxerCombo:1,boxerDmgMult:1,boxerCritBonus:0,boxerRange:42,boxerAtkSpdMul:1,
+    boxerMode:false,boxerBaseDmg:0,boxerDmgMult:1,boxerAtkSpdSub:0,boxerPunchCount:1,
+    boxerCritChanceBonus:0,boxerCritMultBonus:0,
+    boxerSuperCritUnlocked:false,boxerSuperCritChance:0,boxerSuperCritMult:1,
     mageUnlocked:false,chainCount:0,mageDmg:0,mageDmgMult:1,fireballRadius:0,fireballDmg:0,mageAtkSpd:0,
     vitalityUnlocked:false,vitHp:0,dmgReduction:0,dmgReductionMult:1,
-    regenEnabled:false,shieldMaxBonus:0,shieldAutoRegen:false,
+    regenEnabled:false,shieldMaxBonus:0,shieldAutoRegen:false,regen:0,
     droneCount:0,droneDmg:0,droneDmgMult:1,droneCdReduce:0,droneRange:0,
     gunnerUnlocked:false,pistolDmg:0,pistolSpd:0,sniperDmg:0,sniperPierce:0,gunnerDmgMult:1,
     legendMage:false,legendDrone:false,legendChem:false,legendBoxer:false,legendBow:false,legendGunner:false,legendVitality:false};
@@ -506,12 +568,10 @@ function computePlayerStats(){
   BUILD_NODES.forEach(n=>{ const l=(slot.build&&slot.build[n.id])||0; if(l>0) n.apply(build,l,base); });
   base.maxHp+=build.vitHp;
 
-  /* 弓の攻撃間隔: 基礎(2.0〜1.5s、0/12〜12/12)から速射訓練で減算 */
+  /* 弓パラメータの補完 */
   const aspdLv=gameData.tokenLevels['t_aspd']||0;
   const bowBaseInterval=2.0-(0.5*Math.min(1,aspdLv/12));
   build.bowFireInterval=Math.max(0.8, bowBaseInterval-(build.bowSpeedReduce||0));
-
-  /* 弓のサーチ半径: バット射程の4倍基準 */
   build.bowSearchRadius=base.range*4;
 
   return {base,build};
@@ -746,24 +806,20 @@ const SkillTree=(function(){
     _worldToScreen:worldToScreen,_scale:()=>view.scale};
 })();
 
-/* =========================================================
-   CORE STATUS モーダル（12項目）
-   ========================================================= */
+/* CORE STATUS: 攻撃力[ ]内はクリなしの最大火力、クリ率/倍率はバットの値を表示 */
 function openCoreModal(){
   const modal=document.getElementById('coreModal'); if(!modal) return;
   const {base,build}=computePlayerStats();
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
-
   const rawDamage=base.batDamage!==undefined?base.batDamage:base.damage;
-  const totalMult=(build.mageDmgMult||1)*(build.boxerDmgMult||1)*(build.bowDmgMult||1)*(build.gunnerDmgMult||1);
+  const totalMult=(build.mageDmgMult||1)*(build.bowDmgMult||1)*(build.gunnerDmgMult||1);
   const finalDamage=Math.round(rawDamage*totalMult);
-
   set('coreMaxHp', Math.round(base.maxHp+build.vitHp));
   set('coreRegen', ((build.regenEnabled? (base.regen+(build.regen||0)) : 0)).toFixed(2)+'/秒');
   set('coreDamage', `${rawDamage.toFixed(1)} [${finalDamage}]`);
   set('coreAtkSpd', base.atkSpd.toFixed(2)+'/秒');
   set('coreRange', Math.round(base.range));
-  set('coreTokenDrop', (base.pickupRangePct || build.pickupRangePct || 100)+'%');
+  set('coreTokenDrop', `${base.pickupRangePct||100}%`);
   set('coreSpeed', Math.round(base.speed));
   set('coreKnockback', Math.round(base.knockback));
   set('coreCrit', Math.round(base.crit*100)+'%');
