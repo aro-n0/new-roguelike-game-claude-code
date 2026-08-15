@@ -1,16 +1,12 @@
-/* main.js（完全版：BGM遷移トリガー全面刷新＆タイトルトラック統一対応済） */
+/* main.js（統合済み・完全版：BGM Wave帯判定修正、起動時bootstrap呼び出し、回収範囲・攻撃力・自己修復ナノ関連の呼び出しを含む最終版） */
 "use strict";
 
 const SAVE_SLOT_PREFIX='neonDecaySlot_';
 const SAVE_SLOT_COUNT=5;
-
 function slotKey(i){ return SAVE_SLOT_PREFIX+i; }
 function listSaveSlots(){
   const slots=[];
-  for(let i=0;i<SAVE_SLOT_COUNT;i++){
-    const raw=localStorage.getItem(slotKey(i));
-    slots.push(raw? JSON.parse(raw) : null);
-  }
+  for(let i=0;i<SAVE_SLOT_COUNT;i++){ const raw=localStorage.getItem(slotKey(i)); slots.push(raw? JSON.parse(raw) : null); }
   return slots;
 }
 let currentSlotIndex=null;
@@ -19,14 +15,9 @@ function defaultSave(){
     slots:[{name:'スロット1',build:{}},{name:'スロット2',build:{}},{name:'スロット3',build:{}},{name:'スロット4',build:{}},{name:'スロット5',build:{}}],
     activeSlot:0, milestonesClaimed:[], settings:{bgm:0.35,se:0.7} };
 }
-function saveGame(){
-  if(currentSlotIndex==null) return;
-  gameData.lastPlayed=Date.now();
-  localStorage.setItem(slotKey(currentSlotIndex), JSON.stringify(gameData));
-}
+function saveGame(){ if(currentSlotIndex==null) return; gameData.lastPlayed=Date.now(); localStorage.setItem(slotKey(currentSlotIndex), JSON.stringify(gameData)); }
 function loadSlot(i){
-  const raw=localStorage.getItem(slotKey(i));
-  currentSlotIndex=i;
+  const raw=localStorage.getItem(slotKey(i)); currentSlotIndex=i;
   gameData = raw? Object.assign(defaultSave(), JSON.parse(raw)) : defaultSave();
   if(!gameData.slotName) gameData.slotName='セーブ'+(i+1);
   saveGame();
@@ -76,19 +67,11 @@ function damageTarget(e,amount,isCrit){
     }
   }
 }
-
 function spawnDamageNumber(x,y,amount,isCrit){
   game.floatingTexts.push({x,y:y-10,text:Math.round(amount).toString(),isCrit,life:0.9,maxLife:0.9,vy:-46});
-  if(isCrit){
-    game.floatingTexts.push({x,y:y-34,text:'CRITICAL!',isCrit:true,critLabel:true,life:0.9,maxLife:0.9,vy:-46});
-    AudioEngine.SE.critical();
-  }
+  if(isCrit){ game.floatingTexts.push({x,y:y-34,text:'CRITICAL!',isCrit:true,critLabel:true,life:0.9,maxLife:0.9,vy:-46}); AudioEngine.SE.critical(); }
 }
-function spawnChestMaybe(x,y,wave){
-  if(Math.random()<0.005){
-    game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,dropWave:wave||game.wave});
-  }
-}
+function spawnChestMaybe(x,y,wave){ if(Math.random()<0.005){ game.chests.push({x,y,r:16,phase:Math.random()*Math.PI*2,dropWave:wave||game.wave}); } }
 function spawnParticles(x,y,color,count){
   for(let i=0;i<count;i++){
     const ang=Math.random()*Math.PI*2, spd=60+Math.random()*180;
@@ -101,26 +84,20 @@ function grantTokens(amount){ gameData.tokens+=amount; gameData.totalTokensEarne
 function damagePlayer(amount){
   const p=game.player; if(p.invuln>0) return;
   if((p.shield||0)>0){
-    p.shield--;
-    p.invuln=0.3;
+    p.shield--; p.invuln=0.3;
     if(AudioEngine.SE.shieldBreak){ AudioEngine.SE.shieldBreak(); } else { AudioEngine.SE.playerHit(); }
     game.hitStop=Math.max(game.hitStop||0,0.05);
     const ang=p.shieldAngle+(p.shieldOrbits.length/(p.shield+1||1))*Math.PI*2;
     const bx=p.x+Math.cos(ang)*46, by=p.y+Math.sin(ang)*46;
-    spawnParticles(bx,by,'#ffffff',10);
-    spawnParticles(bx,by,'#00F0FF',22);
-    screenShake(6);
+    spawnParticles(bx,by,'#ffffff',10); spawnParticles(bx,by,'#00F0FF',22); screenShake(6);
     return;
   }
   const reduced = amount*(1-Math.min(0.85,p.build.dmgReduction*p.build.dmgReductionMult));
   p.hp-=reduced; p.invuln=0.5; AudioEngine.SE.playerHit(); screenShake(10); spawnParticles(p.x,p.y,'#ff2b4d',10);
-
   if(!p.shieldUnlockedThisRun && p.build.shieldMaxBonus!==undefined && p.hp/p.maxHp<=0.3){
     if((p.build.shieldMaxBonus||0)>=0 && (isOwned(findNode('vt_armor')))){
-      p.shieldUnlockedThisRun=true;
-      p.shield=3+(p.build.shieldMaxBonus||0);
-      spawnParticles(p.x,p.y,'#00F0FF',30);
-      screenShake(10);
+      p.shieldUnlockedThisRun=true; p.shield=3+(p.build.shieldMaxBonus||0);
+      spawnParticles(p.x,p.y,'#00F0FF',30); screenShake(10);
     }
   }
 }
@@ -134,7 +111,7 @@ let previousScreen='title';
 let game=null;
 let lastTime=0;
 
-/* wave帯に応じた通常バトルBGMキー: 1〜19=stage1 / 21〜49=stage2（Wave20/50等ボス戦は個別処理） */
+/* ---- BGM Wave帯判定: 1〜19=stage1 / 21以降=stage2（21到達の瞬間から即切替） ---- */
 function battleBgmKeyForWave(wave){ return wave>=21? 'stage2':'stage1'; }
 
 function startRun(){
@@ -143,7 +120,7 @@ function startRun(){
     floatingTexts:[],chestPopup:null,healItems:[],regenPops:[],
     wave:1,waveTimer:0,waveDuration:26,spawnTimer:0,spawnQueue:waveEnemyCount(1),kills:0,elapsed:0,shake:0,running:true,paused:false,
     tokensThisRun:0,starsThisRun:0,boss:null,bossActive:false,hitStop:0,legendCooldowns:{crosscut:0,shotgun:0,lifedrain:0},
-    cameraZoom:{active:false,scale:1,target:null}, playerFrozen:false, waveSkipCd:0};
+    cameraZoom:{active:false,scale:1,target:null}, playerFrozen:false, waveSkipCd:0, lastBgmWaveKey:null};
   game.player.x=W/2; game.player.y=H/2;
   game.player.shield=0;
   game.player.shieldUnlockedThisRun=false;
@@ -152,6 +129,7 @@ function startRun(){
   screenState='game'; syncScreenDom();
   showWaveBanner(1); AudioEngine.SE.waveStart();
   BGMManager.switchTo(battleBgmKeyForWave(1),{fadeIn:true,gapMs:1000});
+  game.lastBgmWaveKey=battleBgmKeyForWave(1);
   lastTime=performance.now(); requestAnimationFrame(loop);
 }
 function showWaveBanner(w){ const el=document.getElementById('waveBanner'); if(!el) return; el.textContent='WAVE '+w; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
@@ -160,11 +138,7 @@ function showStarBanner(n){ const el=document.getElementById('starBanner'); if(!
 function loop(now){
   if(!game||!game.running) return;
   let rawDt=(now-lastTime)/1000; lastTime=now; rawDt=Math.min(rawDt,0.05);
-  if(!game.paused){
-    let dt=rawDt;
-    if(game.hitStop>0){ game.hitStop-=rawDt; dt=rawDt*0.08; }
-    update(dt);
-  }
+  if(!game.paused){ let dt=rawDt; if(game.hitStop>0){ game.hitStop-=rawDt; dt=rawDt*0.08; } update(dt); }
   render();
   requestAnimationFrame(loop);
 }
@@ -180,20 +154,14 @@ function triggerBoss(wave){
   else if(wave===20){ BGMManager.switchTo('boss20p1',{fadeIn:true,gapMs:1000}); }
   showWaveBanner('WAVE '+wave+' — BOSS');
 }
-
 function spawnBossTokenBurst(x,y,totalTokens){
   game.tokenPickups=game.tokenPickups||[];
   const perOrb=Math.round(totalTokens/10);
   for(let i=0;i<10;i++){
-    const ang=Math.random()*Math.PI*2;
-    const spd=120+Math.random()*180;
-    game.tokenPickups.push({
-      x,y,r:6,phase:Math.random()*Math.PI*2,value:perOrb,
-      vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,burstDecay:true,isBoss:true
-    });
+    const ang=Math.random()*Math.PI*2; const spd=120+Math.random()*180;
+    game.tokenPickups.push({x,y,r:6,phase:Math.random()*Math.PI*2,value:perOrb,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,burstDecay:true,isBoss:true});
   }
 }
-
 function endBoss(){
   const wave=game.boss.wave;
   const dropX=game.boss.x, dropY=game.boss.y;
@@ -207,25 +175,23 @@ function endBoss(){
     gameData.totalStarsEarned=(gameData.totalStarsEarned||0)+reward;
     saveGame(); AudioEngine.SE.starGain(); showStarBanner(reward);
   }
-  game.healItems=game.healItems||[];
-  game.healItems.push({x:dropX,y:dropY,r:18,phase:0});
+  game.healItems=game.healItems||[]; game.healItems.push({x:dropX,y:dropY,r:18,phase:0});
   if(bossTokenTotal>0) spawnBossTokenBurst(dropX,dropY,bossTokenTotal);
   game.boss=null; game.bossActive=false;
   if(wave>=50){ triggerGameClear(); return; }
   game.wave=wave+1; game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
   game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
-  BGMManager.switchTo(battleBgmKeyForWave(game.wave),{fadeIn:true,gapMs:1000});
+  const key=battleBgmKeyForWave(game.wave);
+  BGMManager.switchTo(key,{fadeIn:true,gapMs:1000});
+  game.lastBgmWaveKey=key;
   showWaveBanner(game.wave); AudioEngine.SE.waveStart();
 }
-
 function triggerGameClear(){
   game.running=false; AudioEngine.SE.gameClear();
   BGMManager.switchTo('gameover',{fadeIn:false,gapMs:1000});
   gameData.maxWave=Math.max(gameData.maxWave,50); saveGame();
-  setText('clearTime',fmtTime(game.elapsed));
-  setText('clearKills',game.kills);
-  setText('clearTokens',game.tokensThisRun);
-  setText('clearStars',game.starsThisRun);
+  setText('clearTime',fmtTime(game.elapsed)); setText('clearKills',game.kills);
+  setText('clearTokens',game.tokensThisRun); setText('clearStars',game.starsThisRun);
   setTimeout(()=>{ screenState='gameclear'; syncScreenDom(); },1200);
 }
 function fmtTime(t){ return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0'); }
@@ -234,29 +200,26 @@ function setText(id,val){ const el=document.getElementById(id); if(el) el.textCo
 function updateVitalitySystems(dt){
   const p=game.player;
   const maxShield=3+(p.build.shieldMaxBonus||0);
-
   if(p.shieldUnlockedThisRun){
     if(p.shield===undefined) p.shield=maxShield;
     if(p.build.shieldAutoRegen){
       p.shieldRegenTimer=(p.shieldRegenTimer===undefined?60:p.shieldRegenTimer)-dt;
-      if(p.shieldRegenTimer<=0){
-        p.shieldRegenTimer=60;
-        if(p.shield<maxShield){ p.shield++; spawnParticles(p.x,p.y,'#00fff2',10); }
-      }
+      if(p.shieldRegenTimer<=0){ p.shieldRegenTimer=60; if(p.shield<maxShield){ p.shield++; spawnParticles(p.x,p.y,'#00fff2',10); } }
     }
-  } else {
-    p.shield=0;
-  }
+  } else { p.shield=0; }
 
+  /* 自己修復ナノ: p.build.regen（累積回復量）を用いて毎秒回復 */
   if(p.build.regenEnabled && p.hp<p.maxHp){
     p.regenTickTimer=(p.regenTickTimer===undefined?1:p.regenTickTimer)-dt;
     if(p.regenTickTimer<=0){
       p.regenTickTimer=1;
-      const healAmt=Math.round(p.base.regen+(p.build.regen||0))||5;
-      p.hp=Math.min(p.maxHp,p.hp+healAmt);
-      game.regenPops=game.regenPops||[];
-      game.regenPops.push({x:p.x,y:p.y-30,text:'+'+healAmt,life:1.0,maxLife:1.0,vy:-30});
-      spawnParticles(p.x,p.y,'#39ff88',8);
+      const healAmt=Math.max(0,Math.round(p.build.regen||0));
+      if(healAmt>0){
+        p.hp=Math.min(p.maxHp,p.hp+healAmt);
+        game.regenPops=game.regenPops||[];
+        game.regenPops.push({x:p.x,y:p.y-30,text:'+'+healAmt,life:1.0,maxLife:1.0,vy:-30});
+        spawnParticles(p.x,p.y,'#39ff88',8);
+      }
     }
   }
   game.regenPops=game.regenPops||[];
@@ -267,27 +230,22 @@ function updateVitalitySystems(dt){
   for(const h of game.healItems){
     h.phase=(h.phase||0)+dt*3;
     if(!h.collected && dist(h.x,h.y,p.x,p.y)<(h.r||18)+p.r+8){
-      h.collected=true;
-      p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.5);
-      AudioEngine.SE.chest();
-      spawnParticles(h.x,h.y,'#39ff88',30);
+      h.collected=true; p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.5);
+      AudioEngine.SE.chest(); spawnParticles(h.x,h.y,'#39ff88',30);
       game.regenPops.push({x:p.x,y:p.y-40,text:'+HP 50%',life:1.0,maxLife:1.0,vy:-30});
     }
   }
   game.healItems=game.healItems.filter(h=>!h.collected);
 }
 
-/* トークン回収範囲: pickupRadius(スキルツリー側でパーセンテージ→半径換算済み) をそのまま加算判定に使用 */
+/* ---- トークン回収: pickupRadius（プレイヤー半径からの追加距離）を用いた判定 ---- */
 function updateTokenPickups(dt){
   const p=game.player;
   game.tokenPickups=game.tokenPickups||[];
   const pickupExtra=(p.build && p.build.pickupRadius)||0;
   for(const t of game.tokenPickups){
     t.phase=(t.phase||0)+dt*3;
-    if(t.burstDecay){
-      t.x+=t.vx*dt; t.y+=t.vy*dt;
-      t.vx*=0.9; t.vy*=0.9;
-    }
+    if(t.burstDecay){ t.x+=t.vx*dt; t.y+=t.vy*dt; t.vx*=0.9; t.vy*=0.9; }
     if(!t.collected && dist(t.x,t.y,p.x,p.y)<(t.r||5)+p.r+pickupExtra){
       t.collected=true;
       const gained=Math.round(t.value);
@@ -308,12 +266,9 @@ function updateLegendAbilities(dt){
     const was=game.legendCd[k];
     if(was>0){ game.legendCd[k]=Math.max(0,was-dt); if(game.legendCd[k]<=0) AudioEngine.SE.legendReady(); }
   });
-
   if(p.build.legendVitality){
-    if(p.lifedrainActive){
-      p.lifedrainTimer-=dt;
-      if(p.lifedrainTimer<=0) p.lifedrainActive=false;
-    } else if(p.hp/p.maxHp<=0.3 && game.legendCd.lifedrain<=0){
+    if(p.lifedrainActive){ p.lifedrainTimer-=dt; if(p.lifedrainTimer<=0) p.lifedrainActive=false; }
+    else if(p.hp/p.maxHp<=0.3 && game.legendCd.lifedrain<=0){
       p.lifedrainActive=true; p.lifedrainTimer=10; game.legendCd.lifedrain=60;
       AudioEngine.SE.lifedrainOn(); spawnParticles(p.x,p.y,'#ff2b4d',30); screenShake(8);
       if(typeof triggerLifedrainVisuals==='function') triggerLifedrainVisuals();
@@ -323,8 +278,7 @@ function updateLegendAbilities(dt){
     if(game.legendCd.astra<=0){
       const t=nearestEnemyTo(p.x,p.y);
       if(t){
-        game.legendCd.astra=10;
-        AudioEngine.SE.astraFire(); screenShake(18);
+        game.legendCd.astra=10; AudioEngine.SE.astraFire(); screenShake(18);
         game.astraCast={x:p.x,y:p.y,life:0.5,maxLife:0.5};
         const ang=Math.atan2(t.y-p.y,t.x-p.x);
         const rawDmg=(p.base.batDamage||p.base.damage)*(p.build.bowDmgMult||1)*1.5;
@@ -362,13 +316,16 @@ function update(dt){
       if(game.boss.type==='tank') updateTransform(game.boss,dt);
       else if(game.boss.type==='fortress') updateTransform(game.boss,dt);
     }
-    updateHUD();
-    return;
+    updateHUD(); return;
   }
 
   if(!game.bossActive){
     game.waveTimer+=dt; game.spawnTimer+=dt;
-    BGMManager.switchTo(battleBgmKeyForWave(game.wave),{fadeIn:true,gapMs:1000});
+    const key=battleBgmKeyForWave(game.wave);
+    if(game.lastBgmWaveKey!==key){
+      BGMManager.switchTo(key,{fadeIn:true,gapMs:1000});
+      game.lastBgmWaveKey=key;
+    }
     if(game.waveTimer>=game.waveDuration){
       const nextWave=game.wave+1;
       if(BOSS_TABLE[nextWave]){ game.wave=nextWave; triggerBoss(nextWave); }
@@ -401,7 +358,6 @@ function update(dt){
     if(game.boss.type==='tank') updateBossTank(game.boss,dt);
     else if(game.boss.type==='fortress'){ updateBossFortress(game.boss,dt); updateFortressLaser(game.boss,dt); }
     else updateBoss(dt);
-
     if(bossIsDefeated(game.boss)){
       if(game.boss.transforming){ game.boss.transforming=false; game.playerFrozen=false; game.cameraZoom={active:false,scale:1}; }
       endBoss();
@@ -415,10 +371,7 @@ function update(dt){
     if(b.transformImmune) continue;
     b.x+=b.vx*dt; b.y+=b.vy*dt;
     b.dead=(b.x<-50||b.x>W+50||b.y<-50||b.y>H+50);
-    if(b.isAstra){
-      b.trailTimer=(b.trailTimer||0)-dt;
-      if(b.trailTimer<=0){ b.trailTimer=0.03; spawnParticles(b.x,b.y,'#c4f5ff',3); }
-    }
+    if(b.isAstra){ b.trailTimer=(b.trailTimer||0)-dt; if(b.trailTimer<=0){ b.trailTimer=0.03; spawnParticles(b.x,b.y,'#c4f5ff',3); } }
     if(b.owner==='enemy' && !b.dead){
       if(dist(b.x,b.y,p.x,p.y)<b.r+p.r){ damagePlayer(b.dmg); b.dead=true; }
     } else if(b.owner==='player' && !b.dead){
@@ -434,8 +387,7 @@ function update(dt){
           if(b.isArrow && b.critChance!==undefined){ isCrit=Math.random()<b.critChance; dmg=dmg*(isCrit?(b.critMult||2):1); }
           const isBossPartHit = game.boss && (e===game.boss || (game.boss.children&&game.boss.children.includes(e)) || (game.boss.segs&&game.boss.segs.includes(e)));
           if(isBossPartHit && game.playerFrozen){ continue; }
-          damageTarget(e,dmg,isCrit);
-          tryApplyStatus(e); b.hitSet.add(e);
+          damageTarget(e,dmg,isCrit); tryApplyStatus(e); b.hitSet.add(e);
           if(b.hitSet.size>=(b.maxHits||1)){ b.dead=true; break; }
         }
       }
@@ -463,7 +415,6 @@ function update(dt){
   game.floatingTexts.forEach(t=>{ t.y+=t.vy*dt; t.vy*=0.94; t.life-=dt; });
   game.floatingTexts=game.floatingTexts.filter(t=>t.life>0);
   if(game.chestPopup){ game.chestPopup.timer-=dt; if(game.chestPopup.timer<=0) game.chestPopup=null; }
-
   if(game.bloodBorderTimer>0) game.bloodBorderTimer=Math.max(0,game.bloodBorderTimer-dt);
 
   if(game.waveSkipCd>0) game.waveSkipCd=Math.max(0,game.waveSkipCd-dt);
@@ -473,14 +424,10 @@ function update(dt){
   if(p.hp<=0) endRun();
 }
 
-/* startTransform: 変身開始時にボスBGMを新規則（即時停止→1秒→フェードイン）で切り替え */
 function startTransform(b){
-  b.transforming=true;
-  b.transformPhase='zoomin';
-  b.transformTimer=0;
+  b.transforming=true; b.transformPhase='zoomin'; b.transformTimer=0;
   game.cameraZoom={active:true,target:b,scale:1,phase:'zoomin'};
-  game.playerFrozen=true;
-  game.player.invuln=999;
+  game.playerFrozen=true; game.player.invuln=999;
   game.bullets=game.bullets.filter(bl=>bl.owner!=='enemy');
   game.bullets.forEach(bl=>{ if(bl.owner==='player') bl.transformImmune=true; });
   if(b.wave===10){ BGMManager.switchTo('boss10p2',{fadeIn:true,gapMs:1000}); }
@@ -491,53 +438,34 @@ function updateHUD(){
   const p=game.player;
   const hpBar=document.getElementById('hpBar'); if(hpBar) hpBar.style.width=Math.max(0,(p.hp/p.maxHp*100))+'%';
   setText('hpText',Math.max(0,Math.ceil(p.hp))+'/'+Math.round(p.maxHp));
-  setText('waveText',game.wave);
-  setText('killText',game.kills);
-  setText('runTokenText',game.tokensThisRun);
-  setText('timeText',fmtTime(game.elapsed));
+  setText('waveText',game.wave); setText('killText',game.kills);
+  setText('runTokenText',game.tokensThisRun); setText('timeText',fmtTime(game.elapsed));
 }
-
 function endRun(){
   game.running=false; AudioEngine.SE.gameOver();
   BGMManager.switchTo('gameover',{fadeIn:false,gapMs:1000});
   const wrap=document.getElementById('bossHpWrap'); if(wrap) wrap.classList.add('hidden');
   const tokensEarned=Math.round(game.tokensThisRun||0);
   gameData.maxWave=Math.max(gameData.maxWave,game.wave); saveGame();
-  setText('statWave',game.wave);
-  setText('statKills',game.kills);
-  setText('statTime',fmtTime(game.elapsed));
-  setText('statTokens',tokensEarned);
-  setText('statStars',game.starsThisRun);
+  setText('statWave',game.wave); setText('statKills',game.kills); setText('statTime',fmtTime(game.elapsed));
+  setText('statTokens',tokensEarned); setText('statStars',game.starsThisRun);
   setTimeout(()=>{ screenState='gameover'; syncScreenDom(); },500);
 }
 
-function drawDiamondPath(cx,cy,size,corner){
-  ctx.save();
-  ctx.translate(cx,cy);
-  ctx.rotate(Math.PI/4);
-  roundRectPath(ctx,-size/2,-size/2,size,size,corner);
-  ctx.restore();
-}
+function drawDiamondPath(cx,cy,size,corner){ ctx.save(); ctx.translate(cx,cy); ctx.rotate(Math.PI/4); roundRectPath(ctx,-size/2,-size/2,size,size,corner); ctx.restore(); }
 function drawTokenPickups(){
   for(const t of (game.tokenPickups||[])){
-    const glow=8+Math.sin(t.phase)*4;
-    const size=(t.r||5)*1.7;
+    const glow=8+Math.sin(t.phase)*4; const size=(t.r||5)*1.7;
     ctx.save();
     if(t.isBoss){
       const grad=ctx.createRadialGradient(t.x,t.y,1,t.x,t.y,size);
-      grad.addColorStop(0,'#ff6a86');
-      grad.addColorStop(0.5,'#ff1040');
-      grad.addColorStop(1,'#7a001f');
-      ctx.shadowColor='#ff1040'; ctx.shadowBlur=glow+4;
-      ctx.fillStyle=grad;
-      drawDiamondPath(t.x,t.y,size,3);
-      ctx.fill();
+      grad.addColorStop(0,'#ff6a86'); grad.addColorStop(0.5,'#ff1040'); grad.addColorStop(1,'#7a001f');
+      ctx.shadowColor='#ff1040'; ctx.shadowBlur=glow+4; ctx.fillStyle=grad;
+      drawDiamondPath(t.x,t.y,size,3); ctx.fill();
       ctx.strokeStyle='#ffb3c0'; ctx.lineWidth=1.5; ctx.stroke();
     } else {
-      ctx.shadowColor='#00d9ff'; ctx.shadowBlur=glow;
-      ctx.fillStyle='#00d9ff';
-      drawDiamondPath(t.x,t.y,size,2.4);
-      ctx.fill();
+      ctx.shadowColor='#00d9ff'; ctx.shadowBlur=glow; ctx.fillStyle='#00d9ff';
+      drawDiamondPath(t.x,t.y,size,2.4); ctx.fill();
       ctx.strokeStyle='#c4f5ff'; ctx.lineWidth=1.2; ctx.stroke();
     }
     ctx.restore();
@@ -568,19 +496,13 @@ function drawBloodBorder(){
   const pulse=0.4+0.3*Math.sin(performance.now()/200);
   ctx.save(); ctx.globalAlpha=pulse*0.5;
   ctx.strokeStyle='#ff2b4d'; ctx.lineWidth=30; ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=40;
-  ctx.strokeRect(0,0,W,H);
-  ctx.restore();
+  ctx.strokeRect(0,0,W,H); ctx.restore();
 }
 function drawLifedrainAura(){
-  const p=game.player;
-  if(!p.lifedrainActive) return;
-  ctx.save();
-  const pulse=0.7+0.3*Math.sin(performance.now()/150);
-  ctx.globalAlpha=0.35*pulse;
-  ctx.fillStyle='#8a0022';
-  ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=20;
-  ctx.beginPath(); ctx.arc(p.x,p.y,p.r+16,0,Math.PI*2); ctx.fill();
-  ctx.restore();
+  const p=game.player; if(!p.lifedrainActive) return;
+  ctx.save(); const pulse=0.7+0.3*Math.sin(performance.now()/150);
+  ctx.globalAlpha=0.35*pulse; ctx.fillStyle='#8a0022'; ctx.shadowColor='#ff2b4d'; ctx.shadowBlur=20;
+  ctx.beginPath(); ctx.arc(p.x,p.y,p.r+16,0,Math.PI*2); ctx.fill(); ctx.restore();
 }
 
 function render(){
@@ -631,12 +553,7 @@ function render(){
     ctx.save(); ctx.globalAlpha=a*0.6; ctx.strokeStyle=s.boxer?'#ff2b4d':'#00fff2'; ctx.lineWidth=6;
     ctx.shadowColor=ctx.strokeStyle; ctx.shadowBlur=18; ctx.beginPath(); ctx.arc(s.x,s.y,s.range*0.7,s.angle-0.9,s.angle+0.9); ctx.stroke(); ctx.restore();
   }
-  drawMothership();
-  drawAstraCast();
-  drawLifedrainAura();
-  drawPlayer();
-  drawOrbitalShields();
-  drawShockwaves(1/60);
+  drawMothership(); drawAstraCast(); drawLifedrainAura(); drawPlayer(); drawOrbitalShields(); drawShockwaves(1/60);
 
   for(const t of game.floatingTexts){
     const a=Math.max(0,t.life/t.maxLife);
@@ -673,19 +590,14 @@ function render(){
   }
 
   if(game.chestPopup){
-    const cp=game.chestPopup;
-    const prog=1-cp.timer/cp.maxTimer;
+    const cp=game.chestPopup; const prog=1-cp.timer/cp.maxTimer;
     const scale = prog<0.2? (prog/0.2) : (cp.timer<0.4? cp.timer/0.4 : 1);
-    ctx.save();
-    ctx.globalAlpha=Math.min(1,cp.timer/0.4+0.3);
-    ctx.translate(W/2,H*0.32);
-    ctx.scale(Math.max(0.4,scale),Math.max(0.4,scale));
+    ctx.save(); ctx.globalAlpha=Math.min(1,cp.timer/0.4+0.3);
+    ctx.translate(W/2,H*0.32); ctx.scale(Math.max(0.4,scale),Math.max(0.4,scale));
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.font='bold 42px Consolas'; ctx.fillStyle='#f4ff00'; ctx.shadowColor='#f4ff00'; ctx.shadowBlur=26;
-    ctx.fillText(cp.text,0,0);
-    ctx.restore();
+    ctx.fillText(cp.text,0,0); ctx.restore();
   }
-
   renderLegendBar();
 }
 
@@ -709,8 +621,7 @@ function renderLegendButtons(){
   if(b.legendMage) defs.push({label:'クロスカット',key:'crosscut'});
   if(b.legendGunner) defs.push({label:'破滅の散弾',key:'shotgun'});
   defs.forEach(d=>{
-    const btn=document.createElement('button');
-    btn.className='legend-btn';
+    const btn=document.createElement('button'); btn.className='legend-btn';
     const cd=game.legendCooldowns[d.key]||0;
     btn.disabled = cd>0;
     btn.innerHTML=`<span>${d.label}</span>${cd>0?`<span class="legend-cd">${cd.toFixed(1)}s</span>`:''}`;
@@ -731,8 +642,7 @@ function renderWaveSkipButton(){
   btn.textContent = (game.waveSkipCd||0)>0 ? `SKIP(${Math.ceil(game.waveSkipCd)})` : 'ウェーブスキップ';
 }
 function bindWaveSkipButton(){
-  const btn=document.getElementById('waveSkipBtn');
-  if(!btn) return;
+  const btn=document.getElementById('waveSkipBtn'); if(!btn) return;
   btn.addEventListener('click',()=>{
     if(!game || game.bossActive || (game.waveSkipCd||0)>0) return;
     const bossWaves=Object.keys(BOSS_TABLE).map(Number).sort((a,b)=>a-b);
@@ -741,12 +651,10 @@ function bindWaveSkipButton(){
     game.waveSkipCd=2;
     const count=waveEnemyCount(game.wave);
     for(let i=0;i<count;i++){ game.enemies.push(spawnEnemy(game.wave)); }
-    game.spawnQueue=0;
-    game.wave++;
+    game.spawnQueue=0; game.wave++;
     game.waveTimer=0; game.waveDuration=Math.max(14,26-game.wave*0.4);
     game.spawnQueue=(game.spawnQueue||0)+waveEnemyCount(game.wave);
-    showWaveBanner(game.wave);
-    AudioEngine.SE.click();
+    showWaveBanner(game.wave); AudioEngine.SE.click();
   });
 }
 
@@ -799,24 +707,16 @@ function renderSaveSlotDialog(){
       info.appendChild(line1); info.appendChild(line2); info.appendChild(hint);
       row.appendChild(info);
       const actions=document.createElement('div'); actions.className='save-slot-actions';
-      const loadBtn=document.createElement('button'); loadBtn.className='neon-btn small';
-      loadBtn.textContent='ロード';
-      loadBtn.addEventListener('click',()=>{
-        loadSlot(i); closeSaveDialog();
-        screenState='menu'; syncScreenDom();
-      });
-      const delBtn=document.createElement('button'); delBtn.className='neon-btn small yellow';
-      delBtn.textContent='削除';
+      const loadBtn=document.createElement('button'); loadBtn.className='neon-btn small'; loadBtn.textContent='ロード';
+      loadBtn.addEventListener('click',()=>{ loadSlot(i); closeSaveDialog(); screenState='menu'; syncScreenDom(); });
+      const delBtn=document.createElement('button'); delBtn.className='neon-btn small yellow'; delBtn.textContent='削除';
       delBtn.addEventListener('click',(e)=>{ e.stopPropagation(); if(confirm('このセーブデータを削除しますか？')) deleteSlot(i); });
-      actions.appendChild(loadBtn); actions.appendChild(delBtn);
-      row.appendChild(actions);
+      actions.appendChild(loadBtn); actions.appendChild(delBtn); row.appendChild(actions);
     } else {
-      row.className='save-slot-item empty';
-      row.textContent='空きスロット '+(i+1)+' — 新規作成';
+      row.className='save-slot-item empty'; row.textContent='空きスロット '+(i+1)+' — 新規作成';
       row.addEventListener('click',()=>{
         currentSlotIndex=i; gameData=defaultSave(); gameData.slotName='セーブ'+(i+1);
-        saveGame(); closeSaveDialog();
-        startRun();
+        saveGame(); closeSaveDialog(); startRun();
       });
     }
     list.appendChild(row);
@@ -825,7 +725,6 @@ function renderSaveSlotDialog(){
 function openSaveDialog(){ renderSaveSlotDialog(); const el=document.getElementById('saveSlotDialog'); if(el) el.classList.remove('hidden'); }
 function closeSaveDialog(){ const el=document.getElementById('saveSlotDialog'); if(el) el.classList.add('hidden'); }
 
-/* syncScreenDom: BGMは画面遷移では一切切り替えない（明示的なイベントのみで切替、シームレス継続を維持） */
 function syncScreenDom(){
   document.body.classList.toggle('in-battle', screenState==='game');
   ['titleScreen','menuScreen','settingsScreen','gameOverScreen','gameClearScreen'].forEach(id=>{
@@ -838,9 +737,7 @@ function syncScreenDom(){
   const coreModal=document.getElementById('coreModal'); if(coreModal) coreModal.classList.add('hidden');
   const gc=document.getElementById('globalCurrency');
   if(gc){ if(screenState==='menu'){ gc.style.display='flex'; renderGlobalCurrency(); } else { gc.style.display='none'; } }
-
-  const skipBtn=document.getElementById('waveSkipBtn');
-  if(skipBtn && screenState!=='game'){ skipBtn.style.display='none'; }
+  const skipBtn=document.getElementById('waveSkipBtn'); if(skipBtn && screenState!=='game'){ skipBtn.style.display='none'; }
 
   if(screenState==='title'){ const el=document.getElementById('titleScreen'); if(el) el.classList.remove('hidden'); }
   else if(screenState==='menu'){ const el=document.getElementById('menuScreen'); if(el) el.classList.remove('hidden'); setText('menuMaxWave',gameData.maxWave); }
@@ -874,24 +771,19 @@ function togglePause(){
   const pauseScreen=document.getElementById('pauseScreen');
   if(pauseScreen) pauseScreen.classList.toggle('hidden', !game.paused);
 }
-
-function closeCoreModal(){
-  const el=document.getElementById('coreModal'); if(el) el.classList.add('hidden');
-}
+function closeCoreModal(){ const el=document.getElementById('coreModal'); if(el) el.classList.add('hidden'); }
 
 function on(id,ev,fn){ const el=document.getElementById(id); if(el) el.addEventListener(ev,fn); }
 function ensureAudio(){ AudioEngine.init(); }
 
 on('pauseBtn','click',()=>{ AudioEngine.SE.click(); togglePause(); });
 on('btnResume','click',()=>{ AudioEngine.SE.click(); togglePause(); });
-
 on('btnRetire','click',()=>{
   AudioEngine.SE.click();
   const pauseScreen=document.getElementById('pauseScreen'); if(pauseScreen) pauseScreen.classList.add('hidden');
   if(game){ game.paused=false; }
   if(game && game.running){ endRun(); }
 });
-
 on('btnPauseToTitle','click',()=>{
   AudioEngine.SE.click();
   if(game){ game.running=false; game.paused=false; }
@@ -899,9 +791,7 @@ on('btnPauseToTitle','click',()=>{
   BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
   screenState='title'; syncScreenDom();
 });
-window.addEventListener('keydown',(e)=>{
-  if((e.key==='Escape'||e.key.toLowerCase()==='p') && screenState==='game'){ togglePause(); }
-});
+window.addEventListener('keydown',(e)=>{ if((e.key==='Escape'||e.key.toLowerCase()==='p') && screenState==='game'){ togglePause(); } });
 
 on('btnCoreModalClose','click',()=>{ AudioEngine.SE.click(); closeCoreModal(); });
 
@@ -915,34 +805,21 @@ on('btnNewGame','click',()=>{
 });
 on('btnContinue','click',()=>{ ensureAudio(); AudioEngine.SE.click(); openSaveDialog(); });
 on('btnSaveDialogClose','click',()=>{ AudioEngine.SE.click(); closeSaveDialog(); });
-
 on('btnSettings','click',()=>{ ensureAudio(); AudioEngine.SE.click(); previousScreen='title'; screenState='settings'; syncScreenDom(); });
 on('btnMenuSettings','click',()=>{ ensureAudio(); AudioEngine.SE.click(); previousScreen='menu'; screenState='settings'; syncScreenDom(); });
 on('btnSettingsBack','click',()=>{ AudioEngine.SE.click(); screenState=previousScreen||'title'; syncScreenDom(); });
-
 on('btnPlay','click',()=>{ ensureAudio(); AudioEngine.SE.click(); startRun(); });
 on('btnMenuSkillTree','click',()=>{ ensureAudio(); AudioEngine.SE.click(); screenState='skilltree'; syncScreenDom(); });
-
-/* btnNext: リザルト画面から「次へ」でスキルツリーへ。gameoverから離脱するのでtitleトラックへ切替 */
-on('btnNext','click',()=>{
-  AudioEngine.SE.click();
-  BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
-  screenState='skilltree'; syncScreenDom();
-});
+on('btnNext','click',()=>{ AudioEngine.SE.click(); BGMManager.switchTo('title',{fadeIn:true,gapMs:1000}); screenState='skilltree'; syncScreenDom(); });
 on('btnTreeExit','click',()=>{ AudioEngine.SE.click(); screenState='menu'; syncScreenDom(); });
-on('btnClearBack','click',()=>{
-  AudioEngine.SE.click();
-  BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
-  screenState='title'; syncScreenDom();
-});
+on('btnClearBack','click',()=>{ AudioEngine.SE.click(); BGMManager.switchTo('title',{fadeIn:true,gapMs:1000}); screenState='title'; syncScreenDom(); });
 
 on('btnRespec','click',()=>{
   const slot=gameData.slots[gameData.activeSlot];
   const hasAny = Object.keys(slot.build||{}).length>0 || Object.keys(gameData.tokenLevels||{}).length>0;
   if(!hasAny) return;
   if(!confirm('全スキル（基礎ツリー含む）を初期化し、獲得済みの累計トークンとスターを全額返却します。よろしいですか？')) return;
-  respecActiveSlot();
-  AudioEngine.SE.skillBuy();
+  respecActiveSlot(); AudioEngine.SE.skillBuy();
 });
 
 on('bgmVol','input',(e)=>{ AudioEngine.setVol(e.target.value/100,gameData.settings.se); gameData.settings.bgm=e.target.value/100; saveGame(); });
@@ -953,9 +830,7 @@ on('seVol','input',(e)=>{ AudioEngine.setVol(gameData.settings.bgm,e.target.valu
 })();
 bindWaveSkipButton();
 
-/* サイト起動時（画面1）: titleトラックを1秒の間を置いてフェードイン再生。
-   スキルツリー画面も同じtitleトラックを継続使用するため、初期化時の1回のみ呼び出せば足りる。 */
 screenState='title'; previousScreen='title';
 syncScreenDom();
 ensureAudio();
-BGMManager.switchTo('title',{fadeIn:true,gapMs:1000});
+BGMManager.bootstrap(); /* 1秒後にタイトルBGMを確実に再生開始（ユーザー操作フォールバック付き） */
