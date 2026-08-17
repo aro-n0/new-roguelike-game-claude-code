@@ -50,12 +50,12 @@ const core={x:0,y:0,id:'core'};
 /* ---- 基礎ステータス（トークン専用ツリー、幹＝上方向） ---- */
 const t_dmg_pos=organicPlace(core,-90,150,195,tierRadius('gate'));
 
-/* ---- 攻撃力: Lv0〜50 二次関数曲線 ---- */
-function dmgEffectAtLv(lv){ return 1 + Math.round(199*Math.pow(lv/50,2.1)); }
-function dmgCostAtLv(lv){ return 5 + Math.round(6995*Math.pow(lv/50,2.3)); }
+/* ---- 攻撃力: Lv0〜50 二次関数曲線（最低+1保証の新数式・新コスト式） ---- */
+function dmgEffectAtLv(lv){ return 1 + lv + Math.round(199*Math.pow(lv/50,2.1)); }
+function dmgCostAtLv(lv){ return 3 + Math.round(6997*Math.pow(lv/50,2.3)); }
 const DMG_MAXLV=50;
 const t_dmg={id:'t_dmg',costType:'token',scope:'global',name:'攻撃力',icon:'⚔',maxLv:DMG_MAXLV,
-  baseCost:5,growth:1,costFn:(lvl)=>dmgCostAtLv(lvl+1),
+  baseCost:3,growth:1,costFn:(lvl)=>dmgCostAtLv(lvl+1),
   parent:'core',x:t_dmg_pos.x,y:t_dmg_pos.y,
   apply:(b,l)=>{ const val=dmgEffectAtLv(l); b.batDamage=val; b.damage=val; },
   line2:'近接ダメージが上昇',
