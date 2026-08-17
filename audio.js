@@ -84,7 +84,8 @@ const AudioEngine=(function(){
     transformDeepImpact(){ tone({freq:60,slideTo:20,dur:0.6,type:'sawtooth',gain:0.4}); noise({dur:0.4,gain:0.3,filterFreq:200}); },
     legendReady(){ tone({freq:1600,slideTo:2400,dur:0.15,type:'square',gain:0.22}); tone({freq:2400,dur:0.08,type:'sine',gain:0.2,delay:0.05}); },
     astraFire(){ tone({freq:70,slideTo:40,dur:0.6,type:'sawtooth',gain:0.35}); noise({dur:0.3,gain:0.2,filterFreq:300}); },
-    lifedrainOn(){ tone({freq:90,slideTo:50,dur:0.5,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.18,filterFreq:250}); }
+    lifedrainOn(){ tone({freq:90,slideTo:50,dur:0.5,type:'sine',gain:0.3}); noise({dur:0.3,gain:0.18,filterFreq:250}); },
+    bubblePop(){ tone({freq:1800,slideTo:3200,dur:0.08,type:'sine',gain:0.25}); noise({dur:0.06,gain:0.2,filterFreq:5000}); }
   };
 
   function startBGM(){}
